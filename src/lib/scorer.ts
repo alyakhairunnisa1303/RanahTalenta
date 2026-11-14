@@ -21,6 +21,7 @@ import {
 
 const SCAM_FALLBACK: ScamCheckResult = {
   is_safe: true,
+  risk_level: "Low",
   reason: "Fallback aman: analisis tidak tersedia.",
 };
 
@@ -41,15 +42,27 @@ const MATCH_FALLBACK: SemanticMatchResult = {
 
 export class HireMatchAIService {
   async checkJobScam(
+    companyName: string,
+    hrdEmail: string,
     jobTitle: string,
     jobDescription: string,
   ): Promise<ScamCheckResult> {
     if (isMockMode()) {
-      return mockCheckJobScam(jobTitle, jobDescription);
+      return mockCheckJobScam(
+        companyName,
+        hrdEmail,
+        jobTitle,
+        jobDescription,
+      );
     }
 
     return generateJson({
-      prompt: buildScamCheckPrompt(jobTitle, jobDescription),
+      prompt: buildScamCheckPrompt(
+        companyName,
+        hrdEmail,
+        jobTitle,
+        jobDescription,
+      ),
       schema: scamCheckResultSchema,
       fallback: SCAM_FALLBACK,
     });
@@ -86,10 +99,17 @@ export class HireMatchAIService {
 export const hireMatchAIService = new HireMatchAIService();
 
 export const checkJobScam = (
+  companyName: string,
+  hrdEmail: string,
   jobTitle: string,
   jobDescription: string,
 ): Promise<ScamCheckResult> =>
-  hireMatchAIService.checkJobScam(jobTitle, jobDescription);
+  hireMatchAIService.checkJobScam(
+    companyName,
+    hrdEmail,
+    jobTitle,
+    jobDescription,
+  );
 
 export const validateAndRedactCV = (
   rawPdfText: string,

@@ -5,6 +5,7 @@ import {
   checkJobScam,
   validateAndRedactCV,
 } from "../src/lib/scoring";
+import { isMockMode } from "../src/lib/scoring.mock";
 
 function loadEnvFile(path: string): void {
   if (!existsSync(path)) return;
@@ -34,24 +35,77 @@ if (!process.env.GEMINI_API_KEY?.trim() && !process.env.MOCK_AI) {
 }
 
 async function run(): Promise<void> {
-  console.log(`Mode: ${process.env.MOCK_AI ? "mock" : "live Gemini"}\n`);
+  const mock = isMockMode();
+  console.log(`Mode: ${mock ? "mock" : "live Gemini"}\n`);
 
   const safeJob = await checkJobScam(
+    "Tokopedia",
+    "hrd@tokopedia.com",
     "Backend Engineer",
     "Gaji Rp 8-12 juta. Tidak dipungut biaya. Kerja di kantor.",
   );
   assert.equal(typeof safeJob, "object");
   assert.equal(safeJob.is_safe, true, "safe job should be marked safe");
   assert.ok(safeJob.reason.length > 0, "reason should not be empty");
+  if (mock) {
+    assert.equal(safeJob.risk_level, "Low");
+  } else {
+    assert.notEqual(safeJob.risk_level, "High");
+  }
   console.log("Scam check (safe):", safeJob);
 
   const scamJob = await checkJobScam(
+    "PT Cepat Kaya",
+    "hrd@gmail.com",
     "Admin Online",
     "Gaji 50 juta. Wajib bayar biaya pelatihan dan deposit. Tanpa wawancara.",
   );
   assert.equal(scamJob.is_safe, false, "scam job should be flagged");
   assert.ok(scamJob.reason.length > 0);
+  if (mock) {
+    assert.equal(scamJob.risk_level, "High");
+  } else {
+    assert.notEqual(scamJob.risk_level, "Low");
+  }
   console.log("Scam check (scam):", scamJob);
+
+  const domainMismatch = await checkJobScam(
+    "Tokopedia",
+    "rekrutmen@randomdomain.xyz",
+    "Frontend Engineer",
+    "Lowongan resmi dengan gaji sesuai standar industri.",
+  );
+  assert.equal(
+    domainMismatch.is_safe,
+    false,
+    "domain mismatch should not be marked fully safe",
+  );
+  assert.ok(domainMismatch.reason.length > 0);
+  if (mock) {
+    assert.equal(domainMismatch.risk_level, "Medium");
+  } else {
+    assert.notEqual(domainMismatch.risk_level, "Low");
+  }
+  console.log("Scam check (domain mismatch):", domainMismatch);
+
+  const waRedirect = await checkJobScam(
+    "CV Maju Jaya",
+    "hrd@majujaya.co.id",
+    "Data Entry",
+    "Proses cepat. Hubungi WA 081234567890 untuk jadwal interview.",
+  );
+  assert.equal(
+    waRedirect.is_safe,
+    false,
+    "WhatsApp redirect should be flagged",
+  );
+  assert.ok(waRedirect.reason.length > 0);
+  if (mock) {
+    assert.equal(waRedirect.risk_level, "High");
+  } else {
+    assert.notEqual(waRedirect.risk_level, "Low");
+  }
+  console.log("Scam check (WA redirect):", waRedirect);
 
   const rawCv = [
     "Nama: Budi Santoso",

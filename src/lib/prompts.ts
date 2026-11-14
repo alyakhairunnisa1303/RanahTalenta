@@ -2,14 +2,29 @@ const JSON_ONLY =
   "Kembalikan HANYA JSON valid tanpa markdown dan tanpa penjelasan tambahan.";
 
 export function buildScamCheckPrompt(
+  companyName: string,
+  hrdEmail: string,
   jobTitle: string,
   jobDescription: string,
 ): string {
   return (
-    "Anda adalah sistem keamanan portal kerja. Analisis lowongan berikut apakah terindikasi penipuan " +
-    "(meminta biaya, gaji tidak masuk akal, judi online, atau skema ponzi).\n" +
-    `Posisi: ${jobTitle}\nDeskripsi: ${jobDescription}\n` +
-    `${JSON_ONLY} Struktur: {"is_safe": boolean, "reason": "string singkat"}`
+    "Anda adalah sistem keamanan anti-penipuan loker pada platform Alua.ai.\n" +
+    "Analisis data lowongan berikut untuk mendeteksi indikasi penipuan (Fake Job / Scam):\n" +
+    `- Nama Perusahaan: ${companyName}\n` +
+    `- Email HRD: ${hrdEmail}\n` +
+    `- Posisi: ${jobTitle}\n` +
+    `- Deskripsi: ${jobDescription}\n\n` +
+    "KRITERIA PENIPUAN (RED FLAGS):\n" +
+    "1. Meminta transfer uang, biaya administrasi, atau pembelian tiket/akomodasi.\n" +
+    "2. Gaji terlalu tinggi/tidak masuk akal untuk syarat yang sangat mudah (misal: hanya modal HP/mengetik).\n" +
+    "3. Mengarahkan komunikasi keluar sistem ke nomor WhatsApp/Telegram pribadi.\n" +
+    "4. Ketidaksesuaian ekstrem antara nama perusahaan besar dengan domain email yang mencurigakan.\n\n" +
+    `${JSON_ONLY} Struktur persis:\n` +
+    "{\n" +
+    '  "is_safe": <boolean>,\n' +
+    '  "risk_level": "<Low | Medium | High>",\n' +
+    '  "reason": "<Penjelasan singkat alasan lolos atau ditolak>"\n' +
+    "}"
   );
 }
 

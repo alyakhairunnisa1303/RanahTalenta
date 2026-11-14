@@ -9,6 +9,7 @@ export {
 export type {
   CvValidationResult,
   MatchCategory,
+  RiskLevel,
   ScamCheckResult,
   SemanticMatchResult,
 } from "../types/contract";

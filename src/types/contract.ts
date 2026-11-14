@@ -8,8 +8,13 @@ export const matchCategorySchema = z.enum([
 
 export type MatchCategory = z.infer<typeof matchCategorySchema>;
 
+export const riskLevelSchema = z.enum(["Low", "Medium", "High"]);
+
+export type RiskLevel = z.infer<typeof riskLevelSchema>;
+
 export const scamCheckResultSchema = z.object({
   is_safe: z.boolean(),
+  risk_level: riskLevelSchema,
   reason: z.string(),
 });
 
