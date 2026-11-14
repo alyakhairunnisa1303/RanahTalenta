@@ -1,121 +1,467 @@
-import { z, type ZodType } from "zod";
+import { containsCvSignals, redactPii } from "./anonymize";
+import { hashInput, type GenerationMeta } from "./audit";
+import { TtlCache } from "./cache";
 import { env } from "./env";
 import { aiUnavailable, AppError } from "./errors";
+import {
+  generateJsonResult,
+  type GenerateJsonOptions,
+  type GenerationResult,
+} from "./gemini";
+import {
+  normalizeScamResult,
+  normalizeSemanticMatch,
+} from "./policy";
+import {
+  PROMPT_VERSION,
+  buildCvRedactionPrompt,
+  buildScamCheckPrompt,
+  buildSemanticMatchPrompt,
+  type JobRequirements,
+} from "./prompts";
+import { getGeminiModel, isMockMode } from "./runtime";
 import * as mockScoring from "./scoring.mock";
+import {
+  mockCalculateSemanticMatch,
+  mockValidateAndRedactCV,
+} from "./scoring.mock";
+import {
+  assessCompanyTrust,
+  assessJobScam,
+  mergeScamResults,
+} from "./trust";
+import {
+  cvValidationResultSchema,
+  scamCheckResultSchema,
+  semanticMatchResultSchema,
+  type CvValidationResult,
+  type ScamCheckResult,
+  type SemanticMatchResult,
+} from "../types/contract";
 import type {
-  CvValidationResult,
+  CvValidationResult as BackendCvValidationResult,
   JobScamCheckResult,
   ScoreOutput,
 } from "./types";
 
-type ScoringModule = {
-  checkJobScam(
-    text: string,
-  ): JobScamCheckResult | Promise<JobScamCheckResult>;
-  validateCv(text: string): CvValidationResult | Promise<CvValidationResult>;
-  scoreCandidate(
-    jd: string,
-    cvAnon: string,
-    mustHave: string[],
-  ): ScoreOutput | Promise<ScoreOutput>;
+export type GenerateJson = <T>(
+  options: GenerateJsonOptions<T>,
+) => Promise<GenerationResult<T>>;
+
+export interface ServiceOptions {
+  onGeneration?: (meta: GenerationMeta) => void;
+  jobTitle?: string;
+  requirements?: JobRequirements;
+  deepScan?: boolean;
+  signal?: AbortSignal;
+  generate?: GenerateJson;
+}
+
+const semanticMatchCache = new TtlCache<string, SemanticMatchResult>({
+  ttlMs: 60 * 60 * 1000,
+  maxEntries: 5_000,
+});
+
+function semanticCacheKey(
+  cleanCvText: string,
+  jobDescription: string,
+  options: ServiceOptions,
+): string {
+  return `${getGeminiModel()}:${PROMPT_VERSION}:${hashInput({
+    cv: cleanCvText,
+    jobDescription,
+    jobTitle: options.jobTitle,
+    requirements: options.requirements,
+  })}`;
+}
+
+export function clearSemanticMatchCache(): void {
+  semanticMatchCache.clear();
+}
+
+const SCAM_FALLBACK: ScamCheckResult = {
+  is_safe: true,
+  risk_level: "Low",
+  reason: "Fallback aman: analisis tidak tersedia.",
+  signals: [],
+  confidence: 50,
 };
 
-const scamSchema = z.object({
-  is_safe: z.boolean(),
-  reason: z.string().trim().max(500).optional(),
-});
+const CV_FALLBACK: CvValidationResult = {
+  is_valid_cv: false,
+  redacted_cv: "",
+  reject_reason: "Gagal memproses dokumen.",
+};
 
-const cvSchema = z.object({
-  is_valid_cv: z.boolean(),
-  reason: z.string().trim().max(500).optional(),
-});
+function deterministicGeneration(model = "rules"): GenerationMeta {
+  return {
+    mode: "deterministic",
+    model,
+    promptVersion: PROMPT_VERSION,
+  };
+}
 
-const scoreSchema = z.object({
-  total: z.number().int().min(0).max(100),
-  sim: z.number().int().min(0).max(100),
-  mustScore: z.number().int().min(0).max(100),
-  skor_kompetensi: z.number().int().min(0).max(100),
-  missing: z.array(z.string().trim().min(1).max(300)).max(50),
-  kekuatan: z
-    .array(
-      z.object({
-        poin: z.string().trim().min(1).max(300),
-        bukti: z.string().trim().min(1).max(2000),
+function generationMetaFrom(
+  generated: GenerationResult<unknown>,
+): GenerationMeta {
+  return {
+    mode: generated.mode,
+    model: generated.model,
+    promptVersion: PROMPT_VERSION,
+    latencyMs: generated.latencyMs,
+    promptTokens: generated.usage?.promptTokens,
+    outputTokens: generated.usage?.outputTokens,
+    totalTokens: generated.usage?.totalTokens,
+    ...(generated.fallbackReason
+      ? { fallbackReason: generated.fallbackReason }
+      : {}),
+  };
+}
+
+export class HireMatchAIService {
+  async checkCompanyScam(
+    companyName: string,
+    hrdEmail: string,
+    options: ServiceOptions = {},
+  ): Promise<ScamCheckResult> {
+    options.onGeneration?.(deterministicGeneration());
+    return assessCompanyTrust(companyName, hrdEmail);
+  }
+
+  async checkJobScam(
+    companyName: string,
+    hrdEmail: string,
+    jobTitle: string,
+    jobDescription: string,
+    options: ServiceOptions = {},
+  ): Promise<ScamCheckResult> {
+    const deterministic = assessJobScam(
+      companyName,
+      hrdEmail,
+      jobTitle,
+      jobDescription,
+    );
+
+    if (isMockMode()) {
+      options.onGeneration?.({
+        mode: "mock",
+        model: "deterministic-mock",
+        promptVersion: PROMPT_VERSION,
+      });
+      return deterministic;
+    }
+
+    if (deterministic.risk_level === "High") {
+      options.onGeneration?.(deterministicGeneration());
+      return deterministic;
+    }
+
+    if (deterministic.risk_level === "Low" && !options.deepScan) {
+      options.onGeneration?.(deterministicGeneration());
+      return deterministic;
+    }
+
+    const generated = await (options.generate ?? generateJsonResult)({
+      prompt: buildScamCheckPrompt(
+        companyName,
+        hrdEmail,
+        jobTitle,
+        jobDescription,
+      ),
+      schema: scamCheckResultSchema,
+      fallback: SCAM_FALLBACK,
+      signal: options.signal,
+    });
+    options.onGeneration?.(generationMetaFrom(generated));
+
+    if (generated.mode === "fallback") {
+      return deterministic;
+    }
+
+    return mergeScamResults(deterministic, normalizeScamResult(generated.data));
+  }
+
+  async validateAndRedactCV(
+    rawPdfText: string,
+    options: ServiceOptions = {},
+  ): Promise<CvValidationResult> {
+    const trimmed = rawPdfText.trim();
+
+    if (trimmed.length < 40) {
+      options.onGeneration?.(deterministicGeneration("local-validator"));
+      return {
+        is_valid_cv: false,
+        redacted_cv: "",
+        reject_reason: "Dokumen terlalu pendek atau kosong.",
+      };
+    }
+
+    if (isMockMode()) {
+      options.onGeneration?.({
+        mode: "mock",
+        model: "deterministic-mock",
+        promptVersion: PROMPT_VERSION,
+      });
+      return mockValidateAndRedactCV(trimmed);
+    }
+
+    const locallyRedacted = redactPii(trimmed);
+
+    if (!options.deepScan && containsCvSignals(locallyRedacted)) {
+      options.onGeneration?.(deterministicGeneration("local-validator"));
+      return {
+        is_valid_cv: true,
+        redacted_cv: locallyRedacted,
+        reject_reason: null,
+      };
+    }
+
+    const generated = await (options.generate ?? generateJsonResult)({
+      prompt: buildCvRedactionPrompt(locallyRedacted),
+      schema: cvValidationResultSchema,
+      fallback: CV_FALLBACK,
+      signal: options.signal,
+    });
+    options.onGeneration?.(generationMetaFrom(generated));
+
+    if (generated.mode === "fallback") {
+      if (!containsCvSignals(locallyRedacted)) {
+        return {
+          is_valid_cv: false,
+          redacted_cv: "",
+          reject_reason: "Dokumen tidak terdeteksi sebagai CV yang sah.",
+        };
+      }
+
+      return {
+        is_valid_cv: true,
+        redacted_cv: locallyRedacted,
+        reject_reason: null,
+      };
+    }
+
+    const result = generated.data;
+    if (!result.is_valid_cv) {
+      return {
+        ...result,
+        redacted_cv: "",
+      };
+    }
+
+    return {
+      ...result,
+      redacted_cv: redactPii(result.redacted_cv || locallyRedacted),
+    };
+  }
+
+  async calculateSemanticMatch(
+    cleanCvText: string,
+    jobDescription: string,
+    options: ServiceOptions = {},
+  ): Promise<SemanticMatchResult> {
+    if (isMockMode()) {
+      options.onGeneration?.({
+        mode: "mock",
+        model: "deterministic-mock",
+        promptVersion: PROMPT_VERSION,
+      });
+      return normalizeSemanticMatch(
+        mockCalculateSemanticMatch(cleanCvText, jobDescription),
+      );
+    }
+
+    const cacheKey = options.generate
+      ? null
+      : semanticCacheKey(cleanCvText, jobDescription, options);
+    const cached = cacheKey ? semanticMatchCache.get(cacheKey) : undefined;
+    if (cached) {
+      options.onGeneration?.({
+        mode: "deterministic",
+        model: "cache",
+        promptVersion: PROMPT_VERSION,
+      });
+      return cached;
+    }
+
+    const localFallback = normalizeSemanticMatch(
+      mockCalculateSemanticMatch(cleanCvText, jobDescription),
+    );
+    const generated = await (options.generate ?? generateJsonResult)({
+      prompt: buildSemanticMatchPrompt(cleanCvText, jobDescription, {
+        jobTitle: options.jobTitle,
+        requirements: options.requirements,
       }),
-    )
-    .max(30),
-  celah: z.array(z.string().trim().min(1).max(500)).max(50),
-  candidateFeedback: z.string().trim().min(1).max(5000),
-  pertanyaan_wawancara: z
-    .array(z.string().trim().min(1).max(1000))
-    .length(3, "Harus berisi tepat 3 pertanyaan."),
-});
+      schema: semanticMatchResultSchema,
+      fallback: localFallback,
+      signal: options.signal,
+    });
+    options.onGeneration?.(generationMetaFrom(generated));
 
-function loadAiModule(): ScoringModule {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- modul AI diisi oleh tim AI setelah backend selesai.
-    const aiModule = require("./scoring") as Partial<ScoringModule>;
-
-    if (
-      typeof aiModule.checkJobScam !== "function" ||
-      typeof aiModule.validateCv !== "function" ||
-      typeof aiModule.scoreCandidate !== "function"
-    ) {
-      throw new Error("Ekspor modul AI tidak lengkap.");
+    const normalized = normalizeSemanticMatch(generated.data);
+    if (cacheKey && generated.mode === "gemini") {
+      semanticMatchCache.set(cacheKey, normalized);
     }
 
-    return aiModule as ScoringModule;
-  } catch (error) {
-    console.error(
-      "[SCORER] Modul AI tidak dapat dimuat:",
-      error instanceof Error ? error.message : error,
-    );
-    throw aiUnavailable(
-      "Modul AI belum tersedia. Gunakan USE_MOCK=true atau hubungi tim AI.",
-    );
+    return normalized;
   }
 }
 
-async function runWithAi<T>(
-  call: (aiModule: ScoringModule) => T | Promise<T>,
-  schema: ZodType<T>,
-): Promise<T> {
-  const aiModule = env.USE_MOCK ? mockScoring : loadAiModule();
+export const hireMatchAIService = new HireMatchAIService();
 
-  let raw: unknown;
+export const checkCompanyScam = (
+  companyName: string,
+  hrdEmail: string,
+  options?: ServiceOptions,
+): Promise<ScamCheckResult> =>
+  hireMatchAIService.checkCompanyScam(companyName, hrdEmail, options);
+
+export function checkJobScam(text: string): Promise<JobScamCheckResult>;
+export function checkJobScam(
+  companyName: string,
+  hrdEmail: string,
+  jobTitle: string,
+  jobDescription: string,
+  options?: ServiceOptions,
+): Promise<ScamCheckResult>;
+export async function checkJobScam(
+  companyNameOrText: string,
+  hrdEmail?: string,
+  jobTitle?: string,
+  jobDescription?: string,
+  options?: ServiceOptions,
+): Promise<JobScamCheckResult | ScamCheckResult> {
+  if (typeof hrdEmail === "undefined") {
+    return checkJobScamText(companyNameOrText);
+  }
+
+  return hireMatchAIService.checkJobScam(
+    companyNameOrText,
+    hrdEmail,
+    jobTitle ?? "",
+    jobDescription ?? "",
+    options,
+  );
+}
+
+export const validateAndRedactCV = (
+  rawPdfText: string,
+  options?: ServiceOptions,
+): Promise<CvValidationResult> =>
+  hireMatchAIService.validateAndRedactCV(rawPdfText, options);
+
+export const calculateSemanticMatch = (
+  cleanCvText: string,
+  jobDescription: string,
+  options?: ServiceOptions,
+): Promise<SemanticMatchResult> =>
+  hireMatchAIService.calculateSemanticMatch(cleanCvText, jobDescription, options);
+
+const NEUTRAL_COMPANY = "PT Perusahaan";
+const NEUTRAL_EMAIL = "hrd@perusahaan.co.id";
+
+const QUESTION_FALLBACKS = [
+  "Ceritakan pengalaman paling relevan Anda dengan posisi ini.",
+  "Bagaimana Anda membuktikan kemampuan utama Anda dalam proyek nyata?",
+  "Apa tantangan terbesar yang pernah Anda hadapi, dan bagaimana Anda mengatasinya?",
+];
+
+function wrapAiError(message: string, error: unknown): never {
+  if (error instanceof AppError) {
+    throw error;
+  }
+
+  console.error(
+    "[SCORER] Modul AI gagal memproses permintaan:",
+    error instanceof Error ? error.message : error,
+  );
+  throw aiUnavailable(message);
+}
+
+function toBackendScamResult(
+  result: ScamCheckResult,
+): JobScamCheckResult {
+  return {
+    is_safe: result.is_safe,
+    reason: result.reason ? result.reason.slice(0, 500) : undefined,
+  };
+}
+
+async function checkJobScamText(text: string): Promise<JobScamCheckResult> {
   try {
-    raw = await call(aiModule);
-  } catch (error) {
-    if (error instanceof AppError) {
-      throw error;
+    if (env.USE_MOCK) {
+      return mockScoring.checkJobScam(text);
     }
-    console.error(
-      "[SCORER] Modul AI gagal memproses permintaan:",
-      error instanceof Error ? error.message : error,
-    );
-    throw aiUnavailable("Modul AI gagal memproses permintaan.");
-  }
 
-  const parsed = schema.safeParse(raw);
-  if (!parsed.success) {
-    console.error(
-      "[SCORER] Output modul AI tidak valid:",
-      parsed.error.issues
-        .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
-        .join("; "),
+    const result = await hireMatchAIService.checkJobScam(
+      NEUTRAL_COMPANY,
+      NEUTRAL_EMAIL,
+      "Lowongan",
+      text,
+      { deepScan: true },
     );
-    throw aiUnavailable("Output modul AI tidak valid.");
-  }
 
-  return parsed.data;
+    return toBackendScamResult(result);
+  } catch (error) {
+    return wrapAiError("Modul AI gagal memeriksa lowongan.", error);
+  }
 }
 
-export async function checkJobScam(text: string): Promise<JobScamCheckResult> {
-  return runWithAi((aiModule) => aiModule.checkJobScam(text), scamSchema);
+export async function validateCv(
+  text: string,
+): Promise<BackendCvValidationResult> {
+  try {
+    if (env.USE_MOCK) {
+      return mockScoring.validateCv(text);
+    }
+
+    const result = await hireMatchAIService.validateAndRedactCV(text);
+
+    return {
+      is_valid_cv: result.is_valid_cv,
+      reason: result.reject_reason ?? undefined,
+    };
+  } catch (error) {
+    return wrapAiError("Modul AI gagal memvalidasi CV.", error);
+  }
 }
 
-export async function validateCv(text: string): Promise<CvValidationResult> {
-  return runWithAi((aiModule) => aiModule.validateCv(text), cvSchema);
+function semanticMatchToScoreOutput(
+  result: SemanticMatchResult,
+): ScoreOutput {
+  const questions = [...result.interview_questions];
+
+  for (const fallback of QUESTION_FALLBACKS) {
+    if (questions.length >= 3) break;
+    if (!questions.includes(fallback)) {
+      questions.push(fallback);
+    }
+  }
+
+  const missing = Array.from(
+    new Set([...result.missing_skills, ...result.must_have_gaps]),
+  );
+
+  return {
+    total: result.match_score,
+    sim: result.match_score,
+    mustScore: result.match_score,
+    skor_kompetensi: result.match_score,
+    missing,
+    kekuatan: [
+      {
+        poin: "Kekuatan utama",
+        bukti: result.hr_strengths,
+      },
+    ],
+    celah: [
+      result.hr_gaps,
+      ...result.missing_skills.map(
+        (skill) => `Belum ada bukti untuk "${skill}" di CV.`,
+      ),
+    ],
+    candidateFeedback: result.candidate_feedback,
+    pertanyaan_wawancara: questions.slice(0, 3),
+  };
 }
 
 export async function scoreCandidate(
@@ -123,8 +469,22 @@ export async function scoreCandidate(
   cvAnon: string,
   mustHave: string[],
 ): Promise<ScoreOutput> {
-  return runWithAi(
-    (aiModule) => aiModule.scoreCandidate(jd, cvAnon, mustHave),
-    scoreSchema,
-  );
+  try {
+    if (env.USE_MOCK) {
+      return mockScoring.scoreCandidate(jd, cvAnon, mustHave);
+    }
+
+    const requirements =
+      mustHave.length > 0
+        ? `${jd}\n\nKebutuhan wajib: ${mustHave.join(", ")}`
+        : jd;
+    const result = await hireMatchAIService.calculateSemanticMatch(
+      cvAnon,
+      requirements,
+    );
+
+    return semanticMatchToScoreOutput(result);
+  } catch (error) {
+    return wrapAiError("Modul AI gagal menilai kandidat.", error);
+  }
 }
