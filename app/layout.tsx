@@ -10,7 +10,7 @@ const jakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "HireMatch AI — Portal Karir Cerdas",
+  title: "RanahTalenta — Portal Karir Cerdas",
   description:
     "Platform rekrutmen berbasis AI: pencocokan CV otomatis, blind screening, dan analisis kandidat yang transparan.",
 };

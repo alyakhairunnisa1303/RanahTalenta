@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Icon, { type IconName } from "./Icons";
@@ -19,7 +19,6 @@ const NAV: Record<UserRole, NavItem[]> = {
   hrd: [
     { href: "/hrd/dashboard", label: "Dashboard", icon: "layout" },
     { href: "/hrd/jobs/new", label: "Buat lowongan", icon: "plus" },
-    { href: "/", label: "Halaman publik", icon: "briefcase" },
   ],
 };
 
@@ -31,7 +30,7 @@ function titleFor(pathname: string) {
   return "";
 }
 
-export default function DashboardShell({
+function DashboardShellInner({
   role,
   children,
 }: {
@@ -164,5 +163,25 @@ export default function DashboardShell({
         <main className="relative">{children}</main>
       </div>
     </div>
+  );
+}
+
+export default function DashboardShell({
+  role,
+  children,
+}: {
+  role: UserRole;
+  children: React.ReactNode;
+}) {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-canvas p-6 text-center text-slate-400">
+          Memuat dashboard...
+        </div>
+      }
+    >
+      <DashboardShellInner role={role}>{children}</DashboardShellInner>
+    </Suspense>
   );
 }

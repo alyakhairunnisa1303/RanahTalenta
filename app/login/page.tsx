@@ -10,36 +10,69 @@ import type { UserRole } from "../../src/types/hirematch";
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const fromApply = params.get("from") === "apply";
-  const [role, setRole] = useState<UserRole>("candidate");
+  const queryRole = params.get("role") as UserRole | null;
+  const from = params.get("from");
+  const jobTitle = params.get("jobTitle");
+  const redirect = params.get("redirect");
+
+  const [role, setRole] = useState<UserRole>(
+    queryRole === "hrd" ? "hrd" : "candidate"
+  );
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    // TODO: ganti dengan panggilan API login. Sementara hanya navigasi demo.
-    router.push(role === "hrd" ? "/hrd/dashboard" : "/candidate/dashboard");
+    // Jika ada parameter redirect untuk pelamar, arahkan ke halaman tujuan tersebut
+    if (role === "candidate") {
+      router.push(redirect || "/candidate/dashboard");
+    } else {
+      router.push("/hrd/dashboard");
+    }
   }
 
   const roles: [UserRole, string][] = [
-    ["candidate", "Pelamar"],
-    ["hrd", "Perusahaan (HRD)"],
+    ["candidate", "Fitur Pelamar"],
+    ["hrd", "Fitur HRD (Perusahaan)"],
   ];
 
   return (
     <div className="w-full max-w-md">
+      <Link
+        href="/"
+        className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-brand-600 transition"
+      >
+        <Icon name="arrowLeft" className="h-4 w-4" />
+        Kembali ke Dashboard Publik
+      </Link>
+
       <h1 className="text-3xl font-extrabold tracking-tight text-ink-900">
         Selamat datang kembali
       </h1>
       <p className="mt-2 text-sm text-slate-500">
         Belum punya akun?{" "}
-        <Link href="/register" className="font-semibold text-brand-600 hover:underline">
-          Daftar
+        <Link
+          href={`/register?role=${role}`}
+          className="font-semibold text-brand-600 hover:underline"
+        >
+          Daftar {role === "candidate" ? "Pelamar" : "Perusahaan"}
         </Link>
       </p>
 
-      {fromApply && (
-        <div className="mt-5 flex gap-3 rounded-lg border border-brand-100 bg-brand-50 p-3.5 text-sm text-brand-800">
-          <Icon name="sparkles" className="mt-0.5 h-4 w-4 shrink-0" />
-          Masuk untuk melihat kecocokan CV Anda dengan posisi ini.
+      {/* Banner informasi jika pelamar diarahkan saat memilih pekerjaan */}
+      {(from === "job" || from === "apply") && (
+        <div className="mt-5 flex gap-3 rounded-xl border-2 border-brand-200 bg-brand-50 p-4 text-sm text-brand-900">
+          <Icon name="sparkles" className="mt-0.5 h-5 w-5 shrink-0 text-brand-600" />
+          <div>
+            <p className="font-bold">Akses Fitur Pelamar</p>
+            <p className="mt-0.5 text-xs leading-relaxed text-brand-800">
+              {jobTitle ? (
+                <>
+                  Silakan masuk sebagai <b>Pelamar</b> terlebih dahulu untuk melihat detail lengkap dan melamar posisi <b>{jobTitle}</b>.
+                </>
+              ) : (
+                "Silakan masuk sebagai Pelamar untuk mengakses detail lowongan dan fitur pencocokan CV AI."
+              )}
+            </p>
+          </div>
         </div>
       )}
 
@@ -49,17 +82,36 @@ function LoginForm() {
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-4">
         <div>
-          <label className="label">Email</label>
-          <input type="email" required className="input" placeholder="nama@email.com" />
+          <label className="label">
+            {role === "hrd" ? "Email Perusahaan" : "Email Pelamar"}
+          </label>
+          <input
+            type="email"
+            required
+            defaultValue={role === "hrd" ? "hrd@nusantaratech.co.id" : "pelamar@example.com"}
+            className="input"
+            placeholder={role === "hrd" ? "hrd@perusahaan.co.id" : "nama@email.com"}
+          />
         </div>
         <div>
           <label className="label">Password</label>
-          <input type="password" required className="input" placeholder="••••••••" />
+          <input
+            type="password"
+            required
+            defaultValue="password123"
+            className="input"
+            placeholder="••••••••"
+          />
         </div>
+
         <button type="submit" className="btn-primary btn-hard btn-lg w-full">
-          Masuk
+          Masuk sebagai {role === "candidate" ? "Pelamar" : "HRD"}
         </button>
       </form>
+
+      <div className="mt-6 rounded-lg bg-slate-50 p-3.5 text-xs text-slate-500">
+        <span className="font-semibold text-slate-700">Mode Demo:</span> Formulir sudah terisi otomatis dengan akun contoh. Tekan tombol &quot;Masuk&quot; untuk langsung melanjutkan.
+      </div>
     </div>
   );
 }
@@ -67,7 +119,7 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <AuthShell>
-      <Suspense fallback={null}>
+      <Suspense fallback={<div className="w-full max-w-md py-12 text-center text-slate-400">Memuat formulir masuk...</div>}>
         <LoginForm />
       </Suspense>
     </AuthShell>

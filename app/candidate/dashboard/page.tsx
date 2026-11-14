@@ -54,6 +54,17 @@ export default function CandidateDashboard() {
       setError("File harus berformat PDF.");
       return;
     }
+    // Simulasi AI Authenticity Check: mendeteksi file asal (struk, brosur, invoice)
+    const lowerName = file.name.toLowerCase();
+    if (
+      lowerName.includes("struk") ||
+      lowerName.includes("brosur") ||
+      lowerName.includes("invoice") ||
+      lowerName.includes("receipt")
+    ) {
+      setError("AI Authenticity Check: Dokumen ditolak karena tidak terdeteksi sebagai CV/resume yang sah.");
+      return;
+    }
     setFileName(file.name);
     setStage(0);
     // Simulasi proses backend (hapus saat sudah terhubung ke API)

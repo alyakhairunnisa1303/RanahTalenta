@@ -46,7 +46,7 @@ export default function Footer() {
         </div>
       </div>
       <div className="border-t border-white/10 py-5 text-center text-xs text-slate-500">
-        © 2026 HireMatch AI. Hak cipta dilindungi.
+        © 2026 RanahTalenta. Hak cipta dilindungi.
       </div>
     </footer>
   );

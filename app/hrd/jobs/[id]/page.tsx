@@ -1,10 +1,25 @@
+import { Suspense } from "react";
 import HrdJobDetailClient from "./HrdJobDetailClient";
 
-export default async function HrdJobDetailPage({
+async function HrdJobContent({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  return <HrdJobDetailClient jobId={Number(id)} />;
+}
+
+export default function HrdJobDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = await params;
-  return <HrdJobDetailClient jobId={Number(id)} />;
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-6xl p-12 text-center text-slate-400">
+          Memuat peringkat pelamar...
+        </div>
+      }
+    >
+      <HrdJobContent params={params} />
+    </Suspense>
+  );
 }

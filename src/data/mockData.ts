@@ -242,7 +242,7 @@ export const applications: Application[] = [
   { id: 1, job_match_id: 103, candidate_id: 1, job_id: 2, status: "pending", applied_at: "2026-11-10" },
   { id: 2, job_match_id: 104, candidate_id: 1, job_id: 4, status: "shortlisted", applied_at: "2026-11-06" },
   // Lamaran ke lowongan Backend Developer
-  { id: 42, job_match_id: 201, candidate_id: 21, job_id: 1, status: "pending", applied_at: "2026-11-13" },
+  { id: 42, job_match_id: 201, candidate_id: 21, job_id: 1, status: "shortlisted", applied_at: "2026-11-13" },
   { id: 104, job_match_id: 202, candidate_id: 22, job_id: 1, status: "pending", applied_at: "2026-11-13" },
   { id: 17, job_match_id: 203, candidate_id: 23, job_id: 1, status: "pending", applied_at: "2026-11-13" },
   { id: 63, job_match_id: 204, candidate_id: 24, job_id: 1, status: "pending", applied_at: "2026-11-14" },

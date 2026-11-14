@@ -1,12 +1,12 @@
 import Link from "next/link";
 import type { Job } from "../types/hirematch";
 import { getUser } from "../data/mockData";
-import { formatDate } from "../lib/format";
+import { formatDate, splitLines } from "../lib/format";
 import Icon from "./Icons";
 
 export function VerifiedBadge() {
   return (
-    <span title="Verified Company" className="inline-flex text-brand-600">
+    <span title="Perusahaan Terverifikasi" className="inline-flex items-center text-brand-600">
       <Icon name="badgeCheck" className="h-4 w-4" />
     </span>
   );
@@ -31,19 +31,25 @@ export function CompanyAvatar({
 export default function JobCard({ job }: { job: Job }) {
   // Pengganti JOIN jobs -> users (hrd_id)
   const company = getUser(job.hrd_id);
+  const requirementsList = splitLines(job.requirements).slice(0, 2);
+
+  // Jika pelamar menekan jobs/pekerjaan di dashboard publik, wajib login terlebih dahulu pada fitur pelamar
+  const loginUrl = `/login?role=candidate&from=job&jobId=${job.id}&jobTitle=${encodeURIComponent(
+    job.title
+  )}&redirect=${encodeURIComponent(`/jobs/${job.id}?auth=candidate`)}`;
 
   return (
     <Link
-      href={`/jobs/${job.id}`}
-      className="card-bold lift group flex flex-col p-5"
+      href={loginUrl}
+      className="card-bold lift group flex flex-col p-5 transition duration-200 hover:border-brand-600"
     >
       <div className="flex items-start gap-3">
         <CompanyAvatar name={company?.company_name} className="h-12 w-12 text-lg" />
-        <div className="min-w-0">
-          <h3 className="text-[17px] font-bold leading-snug text-ink-900">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[17px] font-bold leading-snug text-ink-900 group-hover:text-brand-600">
             {job.title}
           </h3>
-          <p className="mt-0.5 flex items-center gap-1 text-sm font-medium text-slate-500">
+          <p className="mt-0.5 flex items-center gap-1.5 text-sm font-medium text-slate-500">
             <span className="truncate">{company?.company_name}</span>
             {company?.is_verified && <VerifiedBadge />}
           </p>
@@ -52,29 +58,48 @@ export default function JobCard({ job }: { job: Job }) {
 
       <div className="mt-4 flex flex-wrap gap-2">
         <span className="chip">
-          <Icon name="pin" className="h-3.5 w-3.5" />
+          <Icon name="pin" className="h-3.5 w-3.5 text-slate-500" />
           {job.location}
         </span>
         {job.salary_range && (
-          <span className="chip">
-            <Icon name="wallet" className="h-3.5 w-3.5" />
+          <span className="chip font-semibold text-brand-700">
+            <Icon name="wallet" className="h-3.5 w-3.5 text-brand-600" />
             {job.salary_range}
           </span>
         )}
       </div>
 
-      <p className="mt-4 line-clamp-2 flex-1 text-sm leading-relaxed text-slate-600">
+      <p className="mt-3.5 line-clamp-2 text-sm leading-relaxed text-slate-600">
         {job.description}
       </p>
 
-      <div className="mt-5 flex items-center justify-between border-t-2 border-dashed border-slate-200 pt-4 text-xs">
+      {/* Ringkasan Kualifikasi */}
+      {requirementsList.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {requirementsList.map((req, i) => (
+            <span
+              key={i}
+              className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600"
+            >
+              <Icon name="check" className="h-3 w-3 text-emerald-600" />
+              <span className="truncate max-w-[200px]">{req}</span>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-5 flex flex-col gap-2.5 border-t-2 border-dashed border-slate-200 pt-4 text-xs sm:flex-row sm:items-center sm:justify-between">
         <span className="font-medium text-slate-400">{formatDate(job.created_at)}</span>
-        <span className="inline-flex items-center gap-2 font-bold text-ink-900">
-          Lihat detail
-          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-accent-400 text-ink-950 transition group-hover:translate-x-0.5">
-            <Icon name="arrowRight" className="h-4 w-4" strokeWidth={2.25} />
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1 font-semibold text-slate-600 transition group-hover:text-brand-600">
+            <Icon name="sparkles" className="h-3.5 w-3.5 text-brand-600" />
+            Cek Kecocokan CV
           </span>
-        </span>
+          <span className="inline-flex items-center gap-1 rounded-md bg-accent-400 px-2.5 py-1 font-bold text-ink-950 shadow-sm transition group-hover:bg-accent-300">
+            Lamar Sekarang
+            <Icon name="arrowRight" className="h-3.5 w-3.5" strokeWidth={2.5} />
+          </span>
+        </div>
       </div>
     </Link>
   );

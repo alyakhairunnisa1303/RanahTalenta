@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import JobCard from "./JobCard";
 import Icon from "./Icons";
@@ -10,13 +10,16 @@ const ALL_LOCATIONS = "Semua Lokasi";
 
 export default function JobBoard() {
   const params = useSearchParams();
-  const [query, setQuery] = useState(params.get("q") ?? "");
+  const urlQuery = params.get("q") ?? "";
+  const [query, setQuery] = useState(urlQuery);
+  const [prevUrlQuery, setPrevUrlQuery] = useState(urlQuery);
   const [location, setLocation] = useState(ALL_LOCATIONS);
 
-  // Sinkron dengan pencarian dari hero
-  useEffect(() => {
-    setQuery(params.get("q") ?? "");
-  }, [params]);
+  // Sinkron saat parameter URL q berubah dari pencarian hero
+  if (urlQuery !== prevUrlQuery) {
+    setPrevUrlQuery(urlQuery);
+    setQuery(urlQuery);
+  }
 
   // Hanya lowongan berstatus open yang tampil di publik
   const openJobs = useMemo(() => jobs.filter((j) => j.status === "open"), []);
@@ -41,16 +44,20 @@ export default function JobBoard() {
   }, [openJobs, query, location]);
 
   return (
-    <section id="lowongan" className="mx-auto max-w-6xl scroll-mt-24 px-4 py-20">
+    <section id="lowongan" className="mx-auto max-w-6xl scroll-mt-24 px-4 py-16">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <p className="eyebrow">Lowongan</p>
-          <h2 className="mt-2 text-4xl font-extrabold tracking-tight text-ink-900 md:text-5xl">
-            Lowongan terbuka
+          <span className="eyebrow">Dashboard Publik</span>
+          <h2 className="mt-1 text-3xl font-extrabold tracking-tight text-ink-900 md:text-4xl">
+            Daftar Lowongan Pekerjaan
           </h2>
+          <p className="mt-2 max-w-xl text-sm text-slate-600">
+            Telusuri lowongan kerja aktif tanpa perlu login. Tekan salah satu pekerjaan untuk masuk ke fitur Pelamar dan mulai melamar dengan bantuan AI.
+          </p>
         </div>
-        <p className="inline-flex w-fit items-center rounded-full border-2 border-ink-900 bg-accent-400 px-4 py-1.5 text-sm font-bold text-ink-950">
-          {filtered.length} lowongan
+        <p className="inline-flex w-fit items-center gap-2 rounded-full border-2 border-ink-900 bg-accent-400 px-4 py-1.5 text-sm font-bold text-ink-950">
+          <Icon name="briefcase" className="h-4 w-4" />
+          {filtered.length} lowongan tersedia
         </p>
       </div>
 
@@ -62,7 +69,7 @@ export default function JobBoard() {
           />
           <input
             className="input pl-10"
-            placeholder="Cari posisi, perusahaan, atau skill…"
+            placeholder="Cari posisi, perusahaan, atau skill..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
