@@ -13,7 +13,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ job
   try {
     const result = await query(
       `SELECT a.id AS application_id, a.job_match_id, a.candidate_id, a.job_id, a.status, a.screening_status, a.screening_step, a.screening_error, a.applied_at::text AS applied_at,
-              jm.match_score, jm.candidate_feedback, jm.hr_strengths, jm.hr_gaps, jm.interview_questions, jm.ai_confidence, jm.ai_evidence, jm.created_at AS match_created_at,
+              jm.match_score, jm.candidate_feedback, jm.hr_strengths, jm.hr_gaps, jm.interview_questions, jm.ai_confidence, jm.ai_evidence, jm.ai_criteria_scores, jm.created_at AS match_created_at,
               CASE WHEN a.status = 'shortlisted' THEN COALESCE(d.applicant_name, u.name) ELSE 'Kandidat #' || LPAD(a.id::text, 3, '0') END AS name,
               CASE WHEN a.status = 'shortlisted' THEN COALESCE(d.applicant_email, u.email) ELSE NULL END AS email,
               u.role, u.company_name, u.legal_number,
@@ -30,7 +30,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ job
     );
     const rows: ApplicantRow[] = result.rows.map((row) => ({
       application: { id: row.application_id, job_match_id: row.job_match_id, candidate_id: row.candidate_id, job_id: row.job_id, status: row.status, screening_status: row.screening_status, screening_step: row.screening_step, screening_error: row.screening_error, applied_at: row.applied_at },
-      match: { id: row.job_match_id, candidate_id: row.candidate_id, job_id: row.job_id, match_score: row.match_score, candidate_feedback: row.candidate_feedback, hr_strengths: row.hr_strengths, hr_gaps: row.hr_gaps, interview_questions: row.interview_questions, ai_confidence: row.ai_confidence, ai_evidence: row.ai_evidence, created_at: row.match_created_at.toISOString() },
+      match: { id: row.job_match_id, candidate_id: row.candidate_id, job_id: row.job_id, match_score: row.match_score, candidate_feedback: row.candidate_feedback, hr_strengths: row.hr_strengths, hr_gaps: row.hr_gaps, interview_questions: row.interview_questions, ai_confidence: row.ai_confidence, ai_evidence: row.ai_evidence, ai_criteria_scores: row.ai_criteria_scores, created_at: row.match_created_at.toISOString() },
       candidate: { id: row.candidate_id, name: row.name, email: row.email, role: row.role, company_name: row.company_name, legal_number: row.legal_number, phone: row.phone, portfolio_url: row.portfolio_url, is_verified: row.is_verified },
     }));
     return NextResponse.json({ applicants: rows }, { headers: { "Cache-Control": "no-store" } });

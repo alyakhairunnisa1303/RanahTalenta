@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test src/lib/anonymize.test.ts src/lib/scoring.mock.test.ts",
+    "test": "tsx --test src/lib/anonymize.test.ts src/lib/scoring.mock.test.ts src/lib/policy.test.ts",
     "db:setup": "tsx scripts/setup-db.ts",
     "db:seed": "tsx scripts/seed-demo.ts",
     "db:seed:applicants": "tsx scripts/seed-applicants.ts"

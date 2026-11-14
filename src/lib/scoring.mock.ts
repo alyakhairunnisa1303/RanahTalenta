@@ -370,6 +370,10 @@ export function mockCalculateSemanticMatch(
   return {
     match_score: score,
     match_category: category,
+    skill_score: score,
+    experience_score: score,
+    education_score: 0,
+    education_applicable: false,
     confidence:
       relevantGroups.length === 0
         ? 50

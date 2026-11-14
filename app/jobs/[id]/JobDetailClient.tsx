@@ -163,7 +163,7 @@ export default function JobDetailClient({
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-4 py-8 sm:px-6">
+    <div className={`mx-auto max-w-4xl space-y-6 px-4 sm:px-6 ${candidateMode ? "pt-5 pb-8 sm:pt-6" : "py-8"}`}>
       {/* Navigasi Kembali ke Dashboard Publik */}
       <div className="flex items-center justify-between border-b border-slate-200 pb-4">
         <Link
@@ -173,9 +173,11 @@ export default function JobDetailClient({
           <Icon name="arrowLeft" className="h-4 w-4" />
           {backLabel}
         </Link>
-        <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-          Detail Lowongan Pekerjaan
-        </span>
+        {!candidateMode && (
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+            Detail Lowongan Pekerjaan
+          </span>
+        )}
       </div>
 
       {/* Header Utama Lowongan */}
@@ -268,9 +270,9 @@ export default function JobDetailClient({
                       </div>
                     </div>
                   </div>
-                ) : (
+                ) : screenError ? null : (
                   <p className="text-xs text-slate-600">
-                    {screenError || "Masuk sebagai Pelamar terverifikasi."}
+                    Masuk sebagai Pelamar terverifikasi.
                   </p>
                 )}
                 <button
@@ -313,7 +315,7 @@ export default function JobDetailClient({
                   )}
                 </div>
               )}
-              {screenError && (
+              {screenError && !applyOpen && (
                 <p className="flex items-center gap-1.5 border-t border-brand-100 pt-3 text-xs text-red-600">
                   <Icon name="alert" className="h-3.5 w-3.5" />
                   {screenError}

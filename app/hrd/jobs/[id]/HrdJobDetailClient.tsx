@@ -726,6 +726,18 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
                       : "HRD belum memulai screening untuk CV ini. Mulai screening dari panel di halaman lowongan."}
               </AiInsight>
 
+              {isScreened(selected) && selected.match.ai_criteria_scores?.skill_score !== undefined && selected.match.ai_criteria_scores.experience_score !== undefined && (
+                <section className="rounded-xl border border-violet-200 bg-violet-50/70 p-4">
+                  <h3 className="text-sm font-bold text-ink-900">Rincian skor berbobot</h3>
+                  <p className="mt-1 text-xs text-slate-600">Skor akhir dihitung dari bobot yang aktif saat screening dimulai.</p>
+                  <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+                    <div className="rounded-lg bg-white/80 p-3"><dt className="text-slate-500">Keterampilan · {selected.match.ai_criteria_scores.weights?.skill_weight ?? 60}%</dt><dd className="mt-1 text-lg font-bold text-ink-900">{selected.match.ai_criteria_scores.skill_score}%</dd></div>
+                    <div className="rounded-lg bg-white/80 p-3"><dt className="text-slate-500">Pengalaman · {selected.match.ai_criteria_scores.weights?.experience_weight ?? 30}%</dt><dd className="mt-1 text-lg font-bold text-ink-900">{selected.match.ai_criteria_scores.experience_score}%</dd></div>
+                    <div className="rounded-lg bg-white/80 p-3"><dt className="text-slate-500">Pendidikan · {selected.match.ai_criteria_scores.education_applicable ? `${selected.match.ai_criteria_scores.weights?.education_weight ?? 10}%` : "tidak diterapkan"}</dt><dd className="mt-1 text-lg font-bold text-ink-900">{selected.match.ai_criteria_scores.education_applicable ? `${selected.match.ai_criteria_scores.education_score ?? 0}%` : "—"}</dd></div>
+                  </dl>
+                </section>
+              )}
+
               {screeningStatus(selected) === "processing" && (
                 <section className="rounded-xl border border-brand-200 bg-brand-50/70 p-4">
                   <div className="mb-3 flex items-center justify-between gap-3">

@@ -12,6 +12,9 @@ type ScreeningSource = {
   company_name: string;
   company_email: string;
   cv_text: string;
+  skill_weight: number;
+  experience_weight: number;
+  education_weight: number;
 };
 
 type ScreeningResponse = {
@@ -37,11 +40,15 @@ export async function POST(
   try {
     const sourceResult = await query<ScreeningSource>(
       `SELECT a.job_match_id, j.title, j.description, j.requirements,
-              u.company_name, u.email AS company_email, p.cv_text
+              u.company_name, u.email AS company_email, p.cv_text,
+              COALESCE(s.skill_weight, 60) AS skill_weight,
+              COALESCE(s.experience_weight, 30) AS experience_weight,
+              COALESCE(s.education_weight, 10) AS education_weight
        FROM applications a
        JOIN jobs j ON j.id = a.job_id AND j.hrd_id = $2
        JOIN users u ON u.id = j.hrd_id
        JOIN candidate_profiles p ON p.candidate_id = a.candidate_id
+       LEFT JOIN hrd_ai_settings s ON s.hrd_id = j.hrd_id
        WHERE a.id = $1`,
       [applicationId, user.id],
     );
@@ -59,6 +66,10 @@ export async function POST(
       `UPDATE applications a SET screening_status = 'processing', screening_step = 0, screening_started_at = NOW(), screening_error = NULL
        FROM jobs j
        WHERE a.id = $1 AND a.job_id = j.id AND j.hrd_id = $2
+         AND EXISTS (
+           SELECT 1 FROM candidate_profiles p
+           WHERE p.candidate_id = a.candidate_id AND BTRIM(p.cv_text) <> ''
+         )
          AND (
            a.screening_status IN ('not_started', 'failed')
            OR (a.screening_status = 'processing' AND (a.screening_started_at IS NULL OR a.screening_started_at < NOW() - INTERVAL '10 minutes'))
@@ -96,6 +107,11 @@ export async function POST(
           jobDescription: `${source.title}\n${source.description}\n\nKualifikasi:\n${source.requirements}`,
           companyName: source.company_name,
           hrdEmail: source.company_email,
+          criteriaWeights: {
+            skill_weight: source.skill_weight,
+            experience_weight: source.experience_weight,
+            education_weight: source.education_weight,
+          },
         }),
       }), async (step) => {
         await query(
@@ -123,9 +139,9 @@ export async function POST(
         await client.query(
           `UPDATE job_matches SET match_score = $1, candidate_feedback = $2,
              hr_strengths = $3::jsonb, hr_gaps = $4::jsonb, interview_questions = $5::jsonb,
-             ai_confidence = $6, ai_evidence = $7::jsonb, created_at = NOW()
-           WHERE id = $8`,
-          [match.match_score, match.candidate_feedback, JSON.stringify(strengths), JSON.stringify(gaps), JSON.stringify(match.interview_questions), match.confidence, JSON.stringify(match.evidence), source.job_match_id],
+             ai_confidence = $6, ai_evidence = $7::jsonb, ai_criteria_scores = $8::jsonb, created_at = NOW()
+           WHERE id = $9`,
+          [match.match_score, match.candidate_feedback, JSON.stringify(strengths), JSON.stringify(gaps), JSON.stringify(match.interview_questions), match.confidence, JSON.stringify(match.evidence), JSON.stringify({ skill_score: match.skill_score, experience_score: match.experience_score, education_score: match.education_score, education_applicable: match.education_applicable, weights: { skill_weight: source.skill_weight, experience_weight: source.experience_weight, education_weight: source.education_weight } }), source.job_match_id],
         );
         await client.query(
           `UPDATE applications SET screening_status = 'completed', screening_step = 4, screening_completed_at = NOW(), screening_error = NULL

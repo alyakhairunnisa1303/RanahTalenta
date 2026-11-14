@@ -36,6 +36,7 @@ import {
   type ShortlistJobInput,
 } from "./shortlist";
 import type {
+  CriteriaWeights,
   CvValidationResult,
   ScamCheckResult,
   SemanticMatchResult,
@@ -59,6 +60,15 @@ const requirementsSchema = z
   })
   .optional();
 
+const criteriaWeightsSchema = z.object({
+  skill_weight: z.number().int().min(0).max(100),
+  experience_weight: z.number().int().min(0).max(100),
+  education_weight: z.number().int().min(0).max(100),
+}).refine(
+  (weights) => weights.skill_weight + weights.experience_weight + weights.education_weight === 100,
+  { message: "Total bobot kriteria harus 100%." },
+);
+
 const jobInputSchema = z.object({
   id: z.string().trim().min(1).max(200),
   title: z.string().trim().min(1).max(300),
@@ -75,6 +85,7 @@ const cvTargetFields = {
   companyName: z.string().trim().max(200).optional(),
   hrdEmail: z.string().trim().email().max(320).optional(),
   deepScan: z.boolean().default(false),
+  criteriaWeights: criteriaWeightsSchema.optional(),
 };
 
 type CvTarget = {
@@ -179,6 +190,7 @@ interface CvScreeningInput extends CvTarget {
   jobTitle?: string;
   companyName?: string;
   hrdEmail?: string;
+  criteriaWeights?: CriteriaWeights;
   source?: CvSourceInfo;
 }
 
@@ -469,6 +481,7 @@ async function runCvScreening(
       jobTitle: input.jobTitle,
       deepScan: input.deepScan || requireLiveGemini,
       forceRealGemini: requireLiveGemini,
+      criteriaWeights: input.criteriaWeights,
       ...(requireLiveGemini ? { generate: generateJsonResult } : {}),
     },
   );

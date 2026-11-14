@@ -47,6 +47,13 @@ export interface JobMatch {
   interview_questions: string[]; // JSON, 3 pertanyaan
   ai_confidence?: number;
   ai_evidence?: string[];
+  ai_criteria_scores?: {
+    skill_score?: number;
+    experience_score?: number;
+    education_score?: number;
+    education_applicable?: boolean;
+    weights?: { skill_weight: number; experience_weight: number; education_weight: number };
+  };
   created_at: string;
 }
 

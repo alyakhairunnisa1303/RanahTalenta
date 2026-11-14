@@ -8,6 +8,12 @@ export const matchCategorySchema = z.enum([
 
 export type MatchCategory = z.infer<typeof matchCategorySchema>;
 
+export interface CriteriaWeights {
+  skill_weight: number;
+  experience_weight: number;
+  education_weight: number;
+}
+
 export const riskLevelSchema = z.enum(["Low", "Medium", "High"]);
 
 export type RiskLevel = z.infer<typeof riskLevelSchema>;
@@ -33,6 +39,10 @@ export type CvValidationResult = z.infer<typeof cvValidationResultSchema>;
 export const semanticMatchResultSchema = z.object({
   match_score: z.coerce.number().int().min(0).max(100),
   match_category: matchCategorySchema,
+  skill_score: z.coerce.number().int().min(0).max(100),
+  experience_score: z.coerce.number().int().min(0).max(100),
+  education_score: z.coerce.number().int().min(0).max(100),
+  education_applicable: z.boolean(),
   confidence: z.coerce.number().int().min(0).max(100).default(60),
   candidate_feedback: z.string().trim().min(1).max(1_000),
   hr_strengths: z.string().trim().min(1).max(1_500),

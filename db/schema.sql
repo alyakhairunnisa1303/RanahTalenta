@@ -38,12 +38,14 @@ CREATE TABLE IF NOT EXISTS job_matches (
   interview_questions JSONB NOT NULL DEFAULT '[]'::jsonb,
   ai_confidence INTEGER NOT NULL DEFAULT 0,
   ai_evidence JSONB NOT NULL DEFAULT '[]'::jsonb,
+  ai_criteria_scores JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(candidate_id, job_id)
 );
 
 ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS ai_confidence INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS ai_evidence JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS ai_criteria_scores JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE TABLE IF NOT EXISTS candidate_profiles (
   candidate_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

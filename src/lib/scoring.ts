@@ -19,6 +19,7 @@ export {
   matchCategoryForScore,
   normalizeScamResult,
   normalizeSemanticMatch,
+  weightedMatchScore,
   shortlistTargetForOpenings,
 } from "./policy";
 

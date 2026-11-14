@@ -10,6 +10,7 @@ import {
 import {
   normalizeScamResult,
   normalizeSemanticMatch,
+  weightedMatchScore,
 } from "./policy";
 import {
   PROMPT_VERSION,
@@ -33,6 +34,7 @@ import {
   cvValidationResultSchema,
   scamCheckResultSchema,
   semanticMatchResultSchema,
+  type CriteriaWeights,
   type CvValidationResult,
   type ScamCheckResult,
   type SemanticMatchResult,
@@ -51,6 +53,7 @@ export interface ServiceOptions {
   onGeneration?: (meta: GenerationMeta) => void;
   jobTitle?: string;
   requirements?: JobRequirements;
+  criteriaWeights?: CriteriaWeights;
   deepScan?: boolean;
   forceRealGemini?: boolean;
   signal?: AbortSignal;
@@ -72,6 +75,7 @@ function semanticCacheKey(
     jobDescription,
     jobTitle: options.jobTitle,
     requirements: options.requirements,
+    criteriaWeights: options.criteriaWeights,
   })}`;
 }
 
@@ -290,6 +294,7 @@ export class HireMatchAIService {
       prompt: buildSemanticMatchPrompt(cleanCvText, jobDescription, {
         jobTitle: options.jobTitle,
         requirements: options.requirements,
+        criteriaWeights: options.criteriaWeights,
       }),
       schema: semanticMatchResultSchema,
       fallback: localFallback,
@@ -297,7 +302,17 @@ export class HireMatchAIService {
     });
     options.onGeneration?.(generationMetaFrom(generated));
 
-    const normalized = normalizeSemanticMatch(generated.data);
+    const result = generated.data;
+    const weights = options.criteriaWeights ?? {
+      skill_weight: 60,
+      experience_weight: 30,
+      education_weight: 10,
+    };
+    const weightedScore = weightedMatchScore(result, weights);
+    const normalized = normalizeSemanticMatch({
+      ...result,
+      match_score: weightedScore,
+    });
     if (cacheKey && generated.mode === "gemini") {
       semanticMatchCache.set(cacheKey, normalized);
     }

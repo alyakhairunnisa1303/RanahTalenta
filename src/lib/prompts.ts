@@ -1,4 +1,4 @@
-export const PROMPT_VERSION = "2026-11-14.2";
+export const PROMPT_VERSION = "2026-11-15.2";
 
 const JSON_ONLY =
   "Kembalikan HANYA JSON valid tanpa markdown dan tanpa penjelasan tambahan.";
@@ -18,6 +18,11 @@ export interface JobRequirements {
 export interface SemanticPromptOptions {
   jobTitle?: string;
   requirements?: JobRequirements;
+  criteriaWeights?: {
+    skill_weight: number;
+    experience_weight: number;
+    education_weight: number;
+  };
 }
 
 export function sanitizeUntrustedText(
@@ -132,13 +137,32 @@ export function buildSemanticMatchPrompt(
     `${untrustedBlock(jobDescription, MAX_DESCRIPTION_LENGTH)}\n\n` +
     "CV PELAMAR:\n" +
     `${untrustedBlock(cleanCvText, MAX_CV_LENGTH)}\n\n` +
-    "Rubrik skor 0-100:\n" +
+    "Bobot prioritas penilaian:\n" +
+    `- Keterampilan: ${options.criteriaWeights?.skill_weight ?? 60}%\n` +
+    `- Pengalaman kerja/proyek: ${options.criteriaWeights?.experience_weight ?? 30}%\n` +
+    `- Pendidikan/sertifikasi relevan: ${options.criteriaWeights?.education_weight ?? 10}%\n` +
+    "Nilai pendidikan hanya jika lowongan menyebut kualifikasi atau sertifikasi sebagai syarat. Nilai tingkat/bidang pendidikan dan sertifikasi yang relevan, jangan nilai nama atau reputasi institusi. Jika pendidikan tidak menjadi syarat, set education_applicable=false dan bobotnya tidak ikut menghitung skor akhir.\n\n" +
+    "Berikan subskor 0-100 untuk keterampilan, pengalaman/proyek, dan pendidikan/sertifikasi. Hitung match_score sementara sebagai rata-rata berbobot; jika pendidikan tidak berlaku, keluarkan bobot pendidikan lalu normalkan bobot aktif. Sistem akan menghitung ulang skor akhir secara deterministik dari subskor tersebut.\n\n" +
+    "Rubrik subskor untuk setiap kriteria (0-100):\n" +
+    "- 0: tidak ada bukti relevan di CV.\n" +
+    "- 1-39: bukti sangat terbatas atau hanya keterampilan/pengalaman yang berdekatan.\n" +
+    "- 40-59: sebagian kebutuhan inti terpenuhi, tetapi beberapa gap penting masih ada.\n" +
+    "- 60-79: sebagian besar kebutuhan inti terpenuhi dengan bukti yang cukup jelas.\n" +
+    "- 80-89: kecocokan kuat; hampir semua kebutuhan inti didukung bukti langsung.\n" +
+    "- 90-99: kecocokan sangat kuat; seluruh atau nyaris seluruh kebutuhan inti didukung bukti spesifik dan relevan.\n" +
+    "- 100: hanya jika semua kebutuhan inti/must-have terbukti langsung di CV dan tidak ada gap material. Jangan berikan 100 hanya karena CV panjang, terdengar meyakinkan, atau memakai banyak kata kunci.\n\n" +
+    "Aturan pemberian subskor:\n" +
+    "- Keterampilan: bandingkan setiap skill yang diminta dengan bukti penggunaan nyata di pekerjaan, proyek, atau pencapaian; kemunculan kata tanpa konteks bukan bukti kuat.\n" +
+    "- Pengalaman: nilai relevansi tugas, tingkat tanggung jawab, dan hasil yang disebutkan; jangan menyimpulkan lama pengalaman jika durasinya tidak tertulis.\n" +
+    "- Pendidikan: nilai hanya kualifikasi atau sertifikasi yang secara eksplisit disyaratkan; jangan menilai nama atau reputasi institusi.\n" +
+    "- Jangan memberi nilai untuk syarat nice-to-have seolah-olah wajib. Syarat wajib yang tidak terbukti harus dicatat dalam must_have_gaps.\n\n" +
+    "Rubrik kategori untuk skor akhir berbobot 0-100:\n" +
     "- 80-100: Highly Recommended, kompetensi inti terpenuhi dengan bukti kuat.\n" +
     "- 60-79: Potential, sebagian kompetensi inti terpenuhi namun ada gap yang bisa dilatih.\n" +
     "- 0-59: Not Recommended, gap kompetensi inti terlalu besar.\n\n" +
     "Aturan tambahan:\n" +
     "- Jika ada must-have yang tidak terpenuhi, match_score maksimal 59 dan masukkan gap ke must_have_gaps.\n" +
-    "- Gunakan confidence rendah jika bukti di CV tipis atau tidak eksplisit.\n" +
+    "- Gunakan confidence rendah jika bukti di CV tipis atau tidak eksplisit; confidence mengukur kekuatan bukti, bukan besarnya skor kecocokan.\n" +
     "- evidence hanya berisi kutipan singkat dari CV yang sudah diredaksi; jangan mengarang fakta.\n" +
     "- interview_questions maksimal 3 pertanyaan.\n\n" +
     `${JSON_ONLY}\n` +
@@ -146,6 +170,10 @@ export function buildSemanticMatchPrompt(
     "{\n" +
     '  "match_score": <integer 0-100>,\n' +
     '  "match_category": "<Highly Recommended | Potential | Not Recommended>",\n' +
+    '  "skill_score": <integer 0-100>,\n' +
+    '  "experience_score": <integer 0-100>,\n' +
+    '  "education_score": <integer 0-100>,\n' +
+    '  "education_applicable": <boolean>,\n' +
     '  "confidence": <integer 0-100>,\n' +
     '  "candidate_feedback": "<1-2 kalimat saran konstruktif untuk pelamar>",\n' +
     '  "hr_strengths": "<1 paragraf singkat kekuatan utama kandidat>",\n' +

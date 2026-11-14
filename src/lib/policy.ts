@@ -1,4 +1,5 @@
 import type {
+  CriteriaWeights,
   MatchCategory,
   RiskLevel,
   ScamCheckResult,
@@ -30,6 +31,26 @@ export function matchCategoryForScore(score: number): MatchCategory {
   if (score >= HIGHLY_RECOMMENDED_MIN_SCORE) return "Highly Recommended";
   if (score >= POTENTIAL_MIN_SCORE) return "Potential";
   return "Not Recommended";
+}
+
+export function weightedMatchScore(
+  scores: Pick<SemanticMatchResult, "skill_score" | "experience_score" | "education_score" | "education_applicable">,
+  weights: CriteriaWeights,
+): number {
+  let skillWeight = weights.skill_weight;
+  let experienceWeight = weights.experience_weight;
+  const educationWeight = scores.education_applicable ? weights.education_weight : 0;
+  if (skillWeight + experienceWeight + educationWeight === 0) {
+    skillWeight = 50;
+    experienceWeight = 50;
+  }
+  const totalWeight = skillWeight + experienceWeight + educationWeight;
+  return Math.round(
+    (scores.skill_score * skillWeight +
+      scores.experience_score * experienceWeight +
+      scores.education_score * educationWeight) /
+      totalWeight,
+  );
 }
 
 export function normalizeSemanticMatch(

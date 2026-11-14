@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Check, FileCheck2, Sparkles, UploadCloud, CircleAlert } from "lucide-react";
+import { ArrowUpRight, Check, FileCheck2, Sparkles, UploadCloud, CircleAlert, Trash2 } from "lucide-react";
 import { AiInsight } from "../../../src/components/AiUi";
 import { ScoreRing } from "../../../src/components/ScoreBadge";
 import { useCurrentUser } from "../../../src/lib/use-current-user";
@@ -38,6 +38,9 @@ export default function CandidateCvProfilePage() {
   const [jobsLoaded, setJobsLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [analysisError, setAnalysisError] = useState("");
+  const [deletingCv, setDeletingCv] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [deleteSuccess, setDeleteSuccess] = useState("");
   const [stage, setStage] = useState(-1);
   const [fileName, setFileName] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
@@ -172,6 +175,31 @@ export default function CandidateCvProfilePage() {
     await analyzeCv({ file, name: file.name });
   }
 
+  async function deleteSavedCv() {
+    if (!candidateId || analyzing || deletingCv || !window.confirm("Hapus CV tersimpan dan seluruh skor, bukti, serta umpan balik screening AI? Riwayat lamaran tetap ada dan perlu discreen ulang setelah Anda mengunggah CV lagi.")) return;
+    setDeletingCv(true);
+    setDeleteError("");
+    setDeleteSuccess("");
+    try {
+      const response = await fetch("/api/candidate/cv", { method: "DELETE" });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "CV gagal dihapus.");
+      try { window.sessionStorage.removeItem(cacheKey); } catch { /* Hasil sesi dibersihkan saat cache tersedia. */ }
+      autoAnalyzedText.current = null;
+      setCvText("");
+      setMatches([]);
+      setAnalyzed(false);
+      setAuditMode(null);
+      setStage(-1);
+      setFileName("");
+      setDeleteSuccess("CV tersimpan dan hasil screening AI sudah dihapus. Riwayat lamaran tetap tersimpan.");
+    } catch (reason) {
+      setDeleteError(reason instanceof Error ? reason.message : "CV gagal dihapus.");
+    } finally {
+      setDeletingCv(false);
+    }
+  }
+
   const rankedMatches = matches
     .filter((match) => openJobs.some((job) => job.id === match.job_id))
     .sort((a, b) => b.match_score - a.match_score);
@@ -184,6 +212,7 @@ export default function CandidateCvProfilePage() {
 
     <section className="card p-6">
       <div className="flex items-center gap-2.5"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-50 text-brand-600"><Sparkles className="h-5 w-5" /></span><div><h2 className="font-semibold text-ink-900">Smart CV Uploader</h2><p className="text-xs text-slate-500">PDF, DOCX, atau TXT · data pribadi disamarkan dalam proses screening</p></div></div>
+      <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-relaxed text-slate-600">Teks CV tersimpan di profil Anda. Untuk analisis AI, sistem mengirimkan teks yang sudah disamarkan ke Gemini dan menyimpan hasil screening pada riwayat lamaran. Anda dapat menghapus CV tersimpan beserta hasil screening-nya dari bagian bawah halaman ini.</p>
       <label className={`mt-5 flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-9 text-center transition ${analyzing ? "cursor-wait border-brand-300 bg-brand-50/40" : "cursor-pointer border-slate-300 bg-gradient-to-b from-slate-50 to-white hover:border-brand-500 hover:bg-brand-50/50"}`}>
         <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-600 to-sky-500 text-white shadow-lg shadow-brand-600/25"><UploadCloud className="h-6 w-6" /></span>
         <span className="mt-3 text-sm font-semibold text-ink-900">{analyzing ? `Sedang menganalisis ${fileName}…` : "Pilih atau jatuhkan CV untuk dianalisis"}</span>
@@ -223,8 +252,14 @@ export default function CandidateCvProfilePage() {
     {cvLoaded && cvText && <section className="card overflow-hidden">
       <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div className="flex items-center gap-2"><FileCheck2 className="h-5 w-5 text-emerald-600" /><h2 className="font-semibold text-ink-900">CV tersimpan (data sudah disamarkan)</h2></div><span className="text-xs text-slate-500">{cvText.trim().split(/\s+/).filter(Boolean).length} kata</span></div>
       <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap p-5 text-sm leading-relaxed text-slate-700">{cvText}</pre>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-4">
+        <div className="min-w-0 flex-1">{deleteError && <p role="alert" className="text-sm text-rose-700">{deleteError}</p>}{deleteSuccess && <p role="status" className="text-sm text-emerald-700">{deleteSuccess}</p>}</div>
+        <button type="button" onClick={() => void deleteSavedCv()} disabled={deletingCv || analyzing} className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50">
+          <Trash2 className="h-4 w-4" />{deletingCv ? "Menghapus…" : "Hapus CV dan hasil screening"}
+        </button>
+      </div>
     </section>}
-    {cvLoaded && !cvText && <p className="text-center text-sm text-slate-500">Belum ada CV tersimpan. Unggah CV di atas untuk memulai analisis.</p>}
+    {cvLoaded && !cvText && <div className="space-y-2 text-center"><p className="text-sm text-slate-500">Belum ada CV tersimpan. Unggah CV di atas untuk memulai analisis.</p>{deleteSuccess && <p role="status" className="text-sm text-emerald-700">{deleteSuccess}</p>}</div>}
     <div className="flex justify-end"><Link href="/candidate/dashboard" className="text-sm font-semibold text-brand-700 hover:underline">Kembali ke dashboard →</Link></div>
   </div>;
 }
