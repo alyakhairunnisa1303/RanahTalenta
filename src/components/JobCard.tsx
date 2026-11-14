@@ -28,19 +28,26 @@ export function CompanyAvatar({
   );
 }
 
-export default function JobCard({ job }: { job: Job }) {
+export default function JobCard({
+  job,
+  candidateMode = false,
+}: {
+  job: Job;
+  candidateMode?: boolean;
+}) {
   // Pengganti JOIN jobs -> users (hrd_id)
   const company = getUser(job.hrd_id);
   const requirementsList = splitLines(job.requirements).slice(0, 2);
 
-  // Jika pelamar menekan jobs/pekerjaan di dashboard publik, wajib login terlebih dahulu pada fitur pelamar
+  // Dashboard publik wajib login; area pelamar langsung membuka detail lowongan.
   const loginUrl = `/login?role=candidate&from=job&jobId=${job.id}&jobTitle=${encodeURIComponent(
     job.title
-  )}&redirect=${encodeURIComponent(`/jobs/${job.id}?auth=candidate`)}`;
+  )}&redirect=${encodeURIComponent(`/candidate/jobs/${job.id}`)}`;
+  const href = candidateMode ? `/candidate/jobs/${job.id}` : loginUrl;
 
   return (
     <Link
-      href={loginUrl}
+      href={href}
       className="card-bold lift group flex flex-col p-5 transition duration-200 hover:border-brand-600"
     >
       <div className="flex items-start gap-3">
@@ -96,7 +103,7 @@ export default function JobCard({ job }: { job: Job }) {
             Cek Kecocokan CV
           </span>
           <span className="inline-flex items-center gap-1 rounded-md bg-accent-400 px-2.5 py-1 font-bold text-ink-950 shadow-sm transition group-hover:bg-accent-300">
-            Lamar Sekarang
+            {candidateMode ? "Lihat Detail" : "Lamar Sekarang"}
             <Icon name="arrowRight" className="h-3.5 w-3.5" strokeWidth={2.5} />
           </span>
         </div>

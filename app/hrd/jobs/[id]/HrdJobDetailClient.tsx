@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import ScoreBadge, {
   ScoreRing,
@@ -13,24 +13,123 @@ import {
   Hero,
   HeroStat,
 } from "@/src/components/AiUi";
+import { getCvForCandidate } from "@/src/data/demoCvs";
 import {
   getApplicantsForJob,
-  getJob,
+  getUser,
 } from "@/src/data/mockData";
 import { splitLines } from "@/src/lib/format";
+import {
+  getAllApplications,
+  upsertApplication,
+} from "@/src/lib/local-store";
+import { screenCvAgainstJob, toJobMatch } from "@/src/lib/screen-client";
+import { useAllJobs } from "@/src/lib/use-all-jobs";
 import type {
   ApplicantRow,
   ApplicationStatus,
+  JobMatch,
 } from "@/src/types/hirematch";
 
 export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
-  const job = getJob(jobId);
+  const allJobs = useAllJobs();
+  const job = allJobs.find((item) => item.id === jobId);
 
   const [rows, setRows] = useState<ApplicantRow[]>(() =>
     getApplicantsForJob(jobId)
   );
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [scoring, setScoring] = useState(true);
+  const [scoringError, setScoringError] = useState("");
+
+  useEffect(() => {
+    if (!job) return;
+
+    let cancelled = false;
+    const company = getUser(job.hrd_id);
+    const baseRows = getApplicantsForJob(job.id);
+    const storedApplications = getAllApplications().filter(
+      (application) => application.job_id === job.id
+    );
+    const merged = new Map<number, ApplicantRow>();
+
+    for (const row of baseRows) {
+      merged.set(row.application.id, row);
+    }
+
+    for (const application of storedApplications) {
+      const existing = merged.get(application.id);
+      if (existing) {
+        merged.set(application.id, { ...existing, application });
+        continue;
+      }
+      const candidate = getUser(application.candidate_id);
+      if (!candidate) continue;
+      const placeholder: JobMatch = {
+        id: application.job_match_id,
+        candidate_id: application.candidate_id,
+        job_id: application.job_id,
+        match_score: 0,
+        candidate_feedback: "",
+        hr_strengths: [],
+        hr_gaps: [],
+        interview_questions: [],
+        created_at: application.applied_at,
+      };
+      merged.set(application.id, {
+        application,
+        match: placeholder,
+        candidate,
+      });
+    }
+
+    let failed = false;
+
+    Promise.all(
+      Array.from(merged.values()).map(async (row) => {
+        try {
+          const response = await screenCvAgainstJob(
+            getCvForCandidate(row.candidate.id),
+            job,
+            company?.company_name ?? undefined,
+            company?.email
+          );
+          if (response.status === "scored") {
+            return {
+              ...row,
+              match: toJobMatch(
+                job.id,
+                row.candidate.id,
+                response.match,
+                row.match.id
+              ),
+            };
+          }
+          return row;
+        } catch {
+          failed = true;
+          return row;
+        }
+      })
+    )
+      .then((scoredRows) => {
+        if (cancelled) return;
+        setRows(scoredRows);
+        if (failed) {
+          setScoringError(
+            "Sebagian skor gagal diperbarui; menampilkan skor terakhir."
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setScoring(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [job]);
 
   if (!job) {
     return (
@@ -59,6 +158,10 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
   const low = rows.length - high - mid;
 
   function setStatus(applicationId: number, status: ApplicationStatus) {
+    const current = rows.find((r) => r.application.id === applicationId);
+    if (current) {
+      upsertApplication({ ...current.application, status });
+    }
     setRows((prev) =>
       prev.map((r) =>
         r.application.id === applicationId
@@ -169,6 +272,20 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
               </span>
             </div>
           </div>
+
+          {/* Status pemeringkatan AI */}
+          {scoring && (
+            <div className="flex items-center gap-2.5 rounded-lg border border-brand-200 bg-brand-50 px-4 py-3 text-xs font-semibold text-brand-800">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
+              AI sedang memeringkat ulang pelamar berdasarkan CV dan requirement…
+            </div>
+          )}
+          {scoringError && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+              <Icon name="alert" className="h-4 w-4 shrink-0" />
+              {scoringError}
+            </div>
+          )}
 
           {/* Daftar Leaderboard Seluruh Pelamar */}
           {sorted.length === 0 ? (

@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import Icon from "../../../src/components/Icons";
 import {
@@ -8,33 +10,51 @@ import {
 } from "../../../src/components/AiUi";
 import {
   CURRENT_HRD_ID,
-  getApplicantsForJob,
   getUser,
+  jobMatches,
   jobStatusMeta,
-  jobs,
 } from "../../../src/data/mockData";
 import { formatDate } from "../../../src/lib/format";
+import { useAllApplications } from "../../../src/lib/use-all-applications";
+import { useAllJobs } from "../../../src/lib/use-all-jobs";
 
 export default function HrdDashboard() {
+  const allJobs = useAllJobs();
+  const applications = useAllApplications();
+
   const hrd = getUser(CURRENT_HRD_ID);
-  const myJobs = jobs.filter((j) => j.hrd_id === CURRENT_HRD_ID);
+  const myJobs = allJobs.filter((j) => j.hrd_id === CURRENT_HRD_ID);
 
   const rowsByJob = myJobs.map((job) => {
-    const rows = getApplicantsForJob(job.id);
+    const apps = applications.filter((application) => application.job_id === job.id);
     return {
       job,
-      total: rows.length,
-      high: rows.filter((r) => r.match.match_score >= 80).length,
+      total: apps.length,
+      high: apps.filter((application) => {
+        const match = jobMatches.find(
+          (item) => item.id === application.job_match_id
+        );
+        return (match?.match_score ?? 0) >= 80;
+      }).length,
     };
   });
-  const all = myJobs.flatMap((j) => getApplicantsForJob(j.id));
+
+  const myApplications = applications.filter((application) =>
+    myJobs.some((job) => job.id === application.job_id)
+  );
 
   const openJobs = myJobs.filter((j) => j.status === "open").length;
-  const total = all.length;
-  const high = all.filter((r) => r.match.match_score >= 80).length;
-  const mid = all.filter(
-    (r) => r.match.match_score >= 60 && r.match.match_score < 80
-  ).length;
+  const total = myApplications.length;
+  const high = myApplications.filter((application) => {
+    const match = jobMatches.find((item) => item.id === application.job_match_id);
+    return (match?.match_score ?? 0) >= 80;
+  }).length;
+  const mid = myApplications.filter((application) => {
+    const score =
+      jobMatches.find((item) => item.id === application.job_match_id)
+        ?.match_score ?? 0;
+    return score >= 60 && score < 80;
+  }).length;
   const low = total - high - mid;
   const pct = (n: number) => (total ? (n / total) * 100 : 0);
 

@@ -238,9 +238,7 @@ export const jobMatches: JobMatch[] = [
 ];
 
 export const applications: Application[] = [
-  // Lamaran pelamar demo
-  { id: 1, job_match_id: 103, candidate_id: 1, job_id: 2, status: "pending", applied_at: "2026-11-10" },
-  { id: 2, job_match_id: 104, candidate_id: 1, job_id: 4, status: "shortlisted", applied_at: "2026-11-06" },
+  // Lamaran pelamar demo sengaja kosong agar setiap lowongan diuji dari awal.
   // Lamaran ke lowongan Backend Developer
   { id: 42, job_match_id: 201, candidate_id: 21, job_id: 1, status: "shortlisted", applied_at: "2026-11-13" },
   { id: 104, job_match_id: 202, candidate_id: 22, job_id: 1, status: "pending", applied_at: "2026-11-13" },

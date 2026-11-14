@@ -48,6 +48,7 @@ const PATHS = {
   cpu: '<rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2"/>',
   zap: '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
   trending: '<path d="m22 7-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/>',
+  lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
 } as const;
 
 export type IconName = keyof typeof PATHS;

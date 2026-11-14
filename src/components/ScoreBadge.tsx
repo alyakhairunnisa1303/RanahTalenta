@@ -1,5 +1,7 @@
 import type { CSSProperties } from "react";
 
+export const RECOMMENDATION_THRESHOLD = 60;
+
 export function scoreMeta(score: number) {
   if (score >= 80)
     return {
@@ -9,7 +11,7 @@ export function scoreMeta(score: number) {
       accent: "border-l-emerald-500",
       stroke: "#10b981",
     };
-  if (score >= 60)
+  if (score >= RECOMMENDATION_THRESHOLD)
     return {
       label: "Potential",
       className: "bg-amber-50 text-amber-700 ring-amber-200",

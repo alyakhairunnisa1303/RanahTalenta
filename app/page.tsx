@@ -4,7 +4,7 @@ import Icon, { type IconName } from "../src/components/Icons";
 import ScoreBadge from "../src/components/ScoreBadge";
 import JobBoard from "../src/components/JobBoard";
 import HeroSearch from "../src/components/HeroSearch";
-import { getUser, jobs } from "../src/data/mockData";
+import PublicStats from "../src/components/PublicStats";
 
 const features: { icon: IconName; title: string; text: string }[] = [
   {
@@ -34,8 +34,8 @@ const steps = [
     text: "CV dicocokkan secara semantik dengan semua lowongan, lengkap dengan saran perbaikan.",
   },
   {
-    title: "Lamar satu klik",
-    text: "Pilih lowongan dengan skor tertinggi dan lamar tanpa mengisi ulang data.",
+    title: "Lamaran siap kirim",
+    text: "Pilih lowongan dengan skor tertinggi, lengkapi persyaratan, lalu kirim lamaran.",
   },
 ];
 
@@ -47,18 +47,6 @@ const preview = [
 ];
 
 export default function HomePage() {
-  const openJobs = jobs.filter((j) => j.status === "open");
-  const verifiedCompanies = new Set(
-    openJobs.filter((j) => getUser(j.hrd_id)?.is_verified).map((j) => j.hrd_id)
-  ).size;
-
-  const stats = [
-    { value: String(openJobs.length), label: "Lowongan terbuka" },
-    { value: String(verifiedCompanies), label: "Perusahaan terverifikasi" },
-    { value: "4", label: "Tahap analisis AI per CV" },
-    { value: "1 klik", label: "Untuk melamar" },
-  ];
-
   return (
     <>
       {/* HERO DASHBOARD PUBLIK */}
@@ -122,7 +110,7 @@ export default function HomePage() {
               </span>
               <span className="inline-flex items-center gap-2">
                 <Icon name="check" className="h-4 w-4 text-accent-400" strokeWidth={2.5} />
-                Lamar satu klik
+                Lamaran terverifikasi
               </span>
             </div>
           </div>
@@ -168,21 +156,7 @@ export default function HomePage() {
       </section>
 
       {/* STRIP STATISTIK */}
-      <section className="border-y-2 border-ink-900 bg-accent-400 text-ink-950">
-        <div className="mx-auto grid max-w-6xl grid-cols-2 gap-y-6 px-4 py-8 md:grid-cols-4">
-          {stats.map((s, i) => (
-            <div
-              key={s.label}
-              className={`px-4 ${i > 0 ? "md:border-l-2 md:border-ink-900/20" : ""}`}
-            >
-              <p className="text-4xl font-extrabold tracking-tight tabular-nums">
-                {s.value}
-              </p>
-              <p className="mt-1 text-sm font-semibold">{s.label}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+      <PublicStats />
 
       {/* DUA FITUR UTAMA: PELAMAR & HRD */}
       <section id="dua-fitur" className="bg-canvas border-b-2 border-slate-200 py-16">
@@ -228,7 +202,7 @@ export default function HomePage() {
                   </li>
                   <li className="flex items-start gap-2.5">
                     <Icon name="check" className="mt-0.5 h-4 w-4 text-emerald-600 shrink-0" strokeWidth={2.5} />
-                    <span><b>1-Klik Melamar:</b> Melamar langsung tanpa mengisi formulir berulang.</span>
+                    <span><b>Lamaran terverifikasi:</b> Lengkapi persyaratan dan konfirmasi data sebelum lamaran dikirim.</span>
                   </li>
                 </ul>
               </div>

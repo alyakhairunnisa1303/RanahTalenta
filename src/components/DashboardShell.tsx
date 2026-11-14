@@ -14,7 +14,7 @@ type NavItem = { href: string; label: string; icon: IconName };
 const NAV: Record<UserRole, NavItem[]> = {
   candidate: [
     { href: "/candidate/dashboard", label: "Dashboard", icon: "layout" },
-    { href: "/", label: "Cari lowongan", icon: "search" },
+    { href: "/candidate/jobs", label: "Cari lowongan", icon: "search" },
   ],
   hrd: [
     { href: "/hrd/dashboard", label: "Dashboard", icon: "layout" },
@@ -24,6 +24,8 @@ const NAV: Record<UserRole, NavItem[]> = {
 
 function titleFor(pathname: string) {
   if (pathname === "/candidate/dashboard") return "Dashboard Pelamar";
+  if (pathname === "/candidate/jobs") return "Cari Lowongan";
+  if (pathname.startsWith("/candidate/jobs/")) return "Detail Lowongan";
   if (pathname === "/hrd/dashboard") return "Dashboard HRD";
   if (pathname === "/hrd/jobs/new") return "Buat Lowongan";
   if (pathname.startsWith("/hrd/jobs/")) return "Peringkat Kandidat";
@@ -44,6 +46,8 @@ function DashboardShellInner({
   const displayName = role === "hrd" ? user?.company_name : user?.name;
 
   const isActive = (href: string) => {
+    if (href === "/candidate/jobs")
+      return pathname === href || pathname.startsWith("/candidate/jobs/");
     if (href === "/hrd/dashboard")
       return (
         pathname === href ||

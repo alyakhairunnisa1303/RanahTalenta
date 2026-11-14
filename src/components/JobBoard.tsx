@@ -4,12 +4,18 @@ import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import JobCard from "./JobCard";
 import Icon from "./Icons";
-import { jobs, getUser } from "../data/mockData";
+import { getUser } from "../data/mockData";
+import { useAllJobs } from "../lib/use-all-jobs";
 
 const ALL_LOCATIONS = "Semua Lokasi";
 
-export default function JobBoard() {
+export default function JobBoard({
+  variant = "public",
+}: {
+  variant?: "public" | "candidate";
+}) {
   const params = useSearchParams();
+  const allJobs = useAllJobs();
   const urlQuery = params.get("q") ?? "";
   const [query, setQuery] = useState(urlQuery);
   const [prevUrlQuery, setPrevUrlQuery] = useState(urlQuery);
@@ -22,7 +28,10 @@ export default function JobBoard() {
   }
 
   // Hanya lowongan berstatus open yang tampil di publik
-  const openJobs = useMemo(() => jobs.filter((j) => j.status === "open"), []);
+  const openJobs = useMemo(
+    () => allJobs.filter((j) => j.status === "open"),
+    [allJobs]
+  );
   const locations = useMemo(
     () => [ALL_LOCATIONS, ...Array.from(new Set(openJobs.map((j) => j.location)))],
     [openJobs]
@@ -43,16 +52,25 @@ export default function JobBoard() {
     });
   }, [openJobs, query, location]);
 
+  const isCandidate = variant === "candidate";
+
   return (
-    <section id="lowongan" className="mx-auto max-w-6xl scroll-mt-24 px-4 py-16">
+    <section
+      id="lowongan"
+      className={`mx-auto max-w-6xl scroll-mt-24 px-4 ${isCandidate ? "py-8" : "py-16"}`}
+    >
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <span className="eyebrow">Dashboard Publik</span>
+          <span className="eyebrow">
+            {isCandidate ? "Cari Lowongan" : "Dashboard Publik"}
+          </span>
           <h2 className="mt-1 text-3xl font-extrabold tracking-tight text-ink-900 md:text-4xl">
-            Daftar Lowongan Pekerjaan
+            {isCandidate ? "Lowongan Tersedia" : "Daftar Lowongan Pekerjaan"}
           </h2>
           <p className="mt-2 max-w-xl text-sm text-slate-600">
-            Telusuri lowongan kerja aktif tanpa perlu login. Tekan salah satu pekerjaan untuk masuk ke fitur Pelamar dan mulai melamar dengan bantuan AI.
+            {isCandidate
+              ? "Telusuri lowongan yang sedang dibuka, cek kecocokan CV dengan AI, lalu lamar langsung dari dashboard pelamar."
+              : "Telusuri lowongan kerja aktif tanpa perlu login. Tekan salah satu pekerjaan untuk masuk ke fitur Pelamar dan mulai melamar dengan bantuan AI."}
           </p>
         </div>
         <p className="inline-flex w-fit items-center gap-2 rounded-full border-2 border-ink-900 bg-accent-400 px-4 py-1.5 text-sm font-bold text-ink-950">
@@ -104,7 +122,7 @@ export default function JobBoard() {
       ) : (
         <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {filtered.map((job) => (
-            <JobCard key={job.id} job={job} />
+            <JobCard key={job.id} job={job} candidateMode={isCandidate} />
           ))}
         </div>
       )}

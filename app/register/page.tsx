@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import AuthShell, { Segmented } from "../../src/components/AuthShell";
 import Icon from "../../src/components/Icons";
+import { checkCompany } from "../../src/lib/screen-client";
 import type { UserRole } from "../../src/types/hirematch";
 
 const PUBLIC_DOMAINS = [
@@ -24,6 +25,8 @@ function RegisterForm() {
   );
   const [email, setEmail] = useState("");
   const [emailError, setEmailError] = useState("");
+  const [companyError, setCompanyError] = useState("");
+  const [checking, setChecking] = useState(false);
   const [step, setStep] = useState<"form" | "otp">("form");
 
   function validateEmail(value: string, currentRole: UserRole = role): string {
@@ -35,11 +38,45 @@ function RegisterForm() {
     return "";
   }
 
-  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const err = validateEmail(email);
     setEmailError(err);
-    if (!err) setStep("otp");
+    if (err) return;
+
+    if (role !== "hrd") {
+      setStep("otp");
+      return;
+    }
+
+    const data = new FormData(e.currentTarget);
+    const companyName = String(data.get("company_name") ?? "").trim();
+    const companyEmail = String(data.get("email") ?? email).trim();
+
+    if (!companyName) {
+      setCompanyError("Nama perusahaan wajib diisi.");
+      return;
+    }
+
+    setChecking(true);
+    setCompanyError("");
+
+    try {
+      const response = await checkCompany(companyName, companyEmail);
+      if (response.decision === "blocked") {
+        setCompanyError(response.result.reason);
+        return;
+      }
+      setStep("otp");
+    } catch (checkErr: unknown) {
+      setCompanyError(
+        checkErr instanceof Error
+          ? checkErr.message
+          : "Gagal memverifikasi perusahaan."
+      );
+    } finally {
+      setChecking(false);
+    }
   }
 
   const roles: [UserRole, string][] = [
@@ -210,12 +247,21 @@ function RegisterForm() {
           />
         </div>
 
+        {companyError && (
+          <p className="flex items-center gap-1.5 rounded-lg bg-red-50 p-3 text-xs text-red-600">
+            <Icon name="alert" className="h-4 w-4 shrink-0" />
+            {companyError}
+          </p>
+        )}
+
         <button
           type="submit"
           className="btn-primary btn-hard btn-lg w-full"
-          disabled={!!emailError}
+          disabled={!!emailError || checking}
         >
-          Daftar sebagai {role === "candidate" ? "Pelamar" : "HRD"}
+          {checking
+            ? "AI memverifikasi perusahaan…"
+            : `Daftar sebagai ${role === "candidate" ? "Pelamar" : "HRD"}`}
         </button>
       </form>
     </div>

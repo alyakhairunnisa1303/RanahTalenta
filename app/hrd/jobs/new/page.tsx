@@ -3,6 +3,10 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import Icon from "../../../../src/components/Icons";
+import { CURRENT_HRD_ID, getUser } from "../../../../src/data/mockData";
+import { addCustomJob, nextJobId } from "../../../../src/lib/local-store";
+import { checkJob } from "../../../../src/lib/screen-client";
+import type { ScamCheckResult } from "../../../../src/types/contract";
 
 // CATATAN: "Bobot Penilaian" BELUM ada di schema.sql (tabel jobs).
 // Backend perlu menambah kolom (mis. scoring_weights JSON) atau bagian ini dihapus.
@@ -18,9 +22,6 @@ const CRITERIA: [keyof Weights, string][] = [
   ["education", "Pendidikan"],
 ];
 
-// Simulasi AI Job Scam Check (nanti diganti respons API: is_safe true/false)
-const SCAM_PATTERN = /biaya administrasi|transfer|deposit|uang pendaftaran|tanpa pengalaman.*gaji/i;
-
 type Phase = "form" | "checking" | "safe" | "flagged";
 
 export default function NewJobPage() {
@@ -30,15 +31,68 @@ export default function NewJobPage() {
     education: 10,
   });
   const [phase, setPhase] = useState<Phase>("form");
+  const [checkResult, setCheckResult] = useState<ScamCheckResult | null>(null);
+  const [decision, setDecision] = useState<string | null>(null);
+  const [checkError, setCheckError] = useState("");
+  const [createdJobId, setCreatedJobId] = useState<number | null>(null);
   const total = Object.values(weights).reduce((a, b) => a + b, 0);
 
-  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (total !== 100) return;
+
     const data = new FormData(e.currentTarget);
-    const text = `${data.get("description")} ${data.get("requirements")}`;
+    const title = String(data.get("title") ?? "").trim();
+    const description = String(data.get("description") ?? "").trim();
+    const requirements = String(data.get("requirements") ?? "").trim();
+    const location = String(data.get("location") ?? "").trim();
+    const salary = String(data.get("salary_range") ?? "").trim();
+    const hrd = getUser(CURRENT_HRD_ID);
+
     setPhase("checking");
-    setTimeout(() => setPhase(SCAM_PATTERN.test(text) ? "flagged" : "safe"), 1800);
+    setCheckError("");
+
+    if (!hrd?.company_name || !hrd.email) {
+      setCheckError("Data perusahaan HRD tidak ditemukan.");
+      setPhase("form");
+      return;
+    }
+
+    try {
+      const response = await checkJob(
+        hrd.company_name,
+        hrd.email,
+        title,
+        `${description}\n\nKualifikasi:\n${requirements}`
+      );
+      setCheckResult(response.result);
+      setDecision(response.decision);
+
+      if (response.decision !== "open") {
+        setPhase("flagged");
+        return;
+      }
+
+      const id = nextJobId();
+      addCustomJob({
+        id,
+        hrd_id: CURRENT_HRD_ID,
+        title,
+        description,
+        requirements,
+        location,
+        salary_range: salary || null,
+        status: "open",
+        created_at: new Date().toISOString().slice(0, 10),
+      });
+      setCreatedJobId(id);
+      setPhase("safe");
+    } catch (err: unknown) {
+      setCheckError(
+        err instanceof Error ? err.message : "Gagal memeriksa lowongan."
+      );
+      setPhase("form");
+    }
   }
 
   if (phase !== "form") {
@@ -64,12 +118,25 @@ export default function NewJobPage() {
               </span>
               <h1 className="mt-5 text-xl font-bold text-ink-900">Lowongan aman &amp; terbit</h1>
               <p className="mt-2 text-sm leading-relaxed text-slate-500">
-                Tidak ditemukan indikasi penipuan. Lowongan kini tampil di halaman
-                depan publik.
+                {checkResult?.reason ??
+                  "Tidak ditemukan indikasi penipuan."}{" "}
+                Lowongan kini tampil di halaman depan publik.
               </p>
-              <Link href="/hrd/dashboard" className="btn-primary mt-6 w-full">
-                Kembali ke dashboard
-              </Link>
+              {checkResult && (
+                <p className="mt-2 text-xs font-semibold text-emerald-700">
+                  Risiko: {checkResult.risk_level} · Keyakinan {checkResult.confidence}%
+                </p>
+              )}
+              <div className="mt-6 flex flex-col gap-2">
+                {createdJobId && (
+                  <Link href={`/hrd/jobs/${createdJobId}`} className="btn-outline w-full">
+                    Lihat lowongan &amp; kandidat
+                  </Link>
+                )}
+                <Link href="/hrd/dashboard" className="btn-primary w-full">
+                  Kembali ke dashboard
+                </Link>
+              </div>
             </>
           )}
           {phase === "flagged" && (
@@ -77,12 +144,33 @@ export default function NewJobPage() {
               <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-50 text-red-600">
                 <Icon name="ban" className="h-7 w-7" />
               </span>
-              <h1 className="mt-5 text-xl font-bold text-ink-900">Lowongan ditandai (flagged)</h1>
+              <h1 className="mt-5 text-xl font-bold text-ink-900">
+                {decision === "pending_review"
+                  ? "Perlu tinjauan manual"
+                  : "Lowongan ditandai (flagged)"}
+              </h1>
               <p className="mt-2 text-sm leading-relaxed text-slate-500">
-                AI mendeteksi indikasi penipuan, misalnya permintaan biaya
-                administrasi atau transaksi di luar platform. Lowongan tidak
-                diterbitkan. Perbaiki deskripsinya lalu kirim ulang.
+                {checkResult?.reason ??
+                  "AI mendeteksi indikasi penipuan pada lowongan ini."}{" "}
+                Lowongan tidak diterbitkan. Perbaiki deskripsinya lalu kirim ulang.
               </p>
+              {checkResult && (
+                <>
+                  <p className="mt-2 text-xs font-semibold text-red-700">
+                    Risiko: {checkResult.risk_level} · Keyakinan {checkResult.confidence}%
+                  </p>
+                  {checkResult.signals.length > 0 && (
+                    <ul className="mt-3 space-y-1 text-left text-xs text-red-700">
+                      {checkResult.signals.map((signal) => (
+                        <li key={signal} className="flex gap-1.5">
+                          <Icon name="alert" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          {signal}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
               <button onClick={() => setPhase("form")} className="btn-primary mt-6 w-full">
                 Perbaiki lowongan
               </button>
@@ -108,6 +196,13 @@ export default function NewJobPage() {
       <p className="mt-1 text-sm text-slate-500">
         Lowongan akan diperiksa AI sebelum tampil di halaman publik.
       </p>
+
+      {checkError && (
+        <p className="mt-4 flex items-center gap-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          <Icon name="alert" className="h-4 w-4 shrink-0" />
+          {checkError}
+        </p>
+      )}
 
       <form onSubmit={handleSubmit} className="mt-8 grid gap-6 lg:grid-cols-[1fr_340px]">
         <div className="card space-y-5 p-6">

@@ -1,36 +1,107 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import ApplyDialog from "@/src/components/ApplyDialog";
 import Icon from "@/src/components/Icons";
 import { CompanyAvatar, VerifiedBadge } from "@/src/components/JobCard";
 import ScoreBadge, { ScoreRing } from "@/src/components/ScoreBadge";
 import { AiInsight } from "@/src/components/AiUi";
-import {
-  CURRENT_CANDIDATE_ID,
-  applications as allApplications,
-  getJob,
-  getUser,
-  jobMatches,
-} from "@/src/data/mockData";
+import { DEMO_CANDIDATE_CV } from "@/src/data/demoCvs";
+import { CURRENT_CANDIDATE_ID, getUser } from "@/src/data/mockData";
 import { formatDate, splitLines } from "@/src/lib/format";
+import {
+  getCandidateCv,
+  nextApplicationId,
+  saveCandidateCv,
+  upsertApplication,
+} from "@/src/lib/local-store";
+import { screenCvAgainstJob, toJobMatch } from "@/src/lib/screen-client";
+import { useAllApplications } from "@/src/lib/use-all-applications";
+import { useAllJobs } from "@/src/lib/use-all-jobs";
+import type { Application, JobMatch } from "@/src/types/hirematch";
 
-export default function JobDetailClient({ jobId }: { jobId: number }) {
+export default function JobDetailClient({
+  jobId,
+  candidateMode = false,
+}: {
+  jobId: number;
+  candidateMode?: boolean;
+}) {
   const searchParams = useSearchParams();
-  const isCandidateAuth = searchParams.get("auth") === "candidate";
+  const isCandidateAuth =
+    candidateMode || searchParams.get("auth") === "candidate";
+  const backHref = isCandidateAuth ? "/candidate/jobs" : "/";
+  const backLabel = isCandidateAuth
+    ? "Kembali ke Cari Lowongan"
+    : "Kembali ke Dashboard Publik";
 
-  const job = getJob(jobId);
+  const allJobs = useAllJobs();
+  const job = allJobs.find((item) => item.id === jobId);
   const company = job ? getUser(job.hrd_id) : undefined;
-  const match = jobMatches.find(
-    (m) => m.job_id === jobId && m.candidate_id === CURRENT_CANDIDATE_ID
+  const candidate = getUser(CURRENT_CANDIDATE_ID);
+
+  const [match, setMatch] = useState<JobMatch | null>(null);
+  const [screening, setScreening] = useState(false);
+  const [screenError, setScreenError] = useState("");
+  const [applying, setApplying] = useState(false);
+  const [applyOpen, setApplyOpen] = useState(false);
+  const applications = useAllApplications();
+  const hasApplied = applications.some(
+    (application) =>
+      application.job_id === jobId &&
+      application.candidate_id === CURRENT_CANDIDATE_ID
   );
 
-  const [hasApplied, setHasApplied] = useState(() =>
-    allApplications.some(
-      (a) => a.job_id === jobId && a.candidate_id === CURRENT_CANDIDATE_ID
+  useEffect(() => {
+    if (!job || !isCandidateAuth) return;
+
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      if (cancelled) return;
+      setScreening(true);
+      setScreenError("");
+    });
+
+    screenCvAgainstJob(
+      getCandidateCv() ?? DEMO_CANDIDATE_CV,
+      job,
+      company?.company_name ?? undefined,
+      company?.email
     )
-  );
+      .then((response) => {
+        if (cancelled) return;
+        if (response.status === "scored") {
+          saveCandidateCv(response.validation.redacted_cv);
+          setMatch(
+            toJobMatch(job.id, CURRENT_CANDIDATE_ID, response.match)
+          );
+          return;
+        }
+        if (response.status === "rejected") {
+          setScreenError(
+            response.validation.reject_reason ??
+              "CV tidak terdeteksi sebagai dokumen yang sah."
+          );
+          return;
+        }
+        setScreenError("Respons screening tidak dikenali.");
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setScreenError(
+          err instanceof Error ? err.message : "Gagal menganalisis CV."
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setScreening(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [job, isCandidateAuth, company?.company_name, company?.email]);
 
   if (!job) {
     return (
@@ -41,11 +112,11 @@ export default function JobDetailClient({ jobId }: { jobId: number }) {
           Lowongan yang Anda cari mungkin sudah ditutup atau tidak tersedia.
         </p>
         <Link
-          href="/"
+          href={backHref}
           className="mt-6 inline-flex items-center gap-2 font-bold text-brand-600 hover:underline"
         >
           <Icon name="arrowLeft" className="h-4 w-4" />
-          Kembali ke Dashboard Publik
+          {backLabel}
         </Link>
       </div>
     );
@@ -53,8 +124,59 @@ export default function JobDetailClient({ jobId }: { jobId: number }) {
 
   const requirementsList = splitLines(job.requirements);
 
-  function handleApply() {
-    setHasApplied(true);
+  async function handleApply() {
+    if (!job || hasApplied || applying) return;
+
+    setApplying(true);
+    setScreenError("");
+
+    try {
+      let currentMatch = match;
+
+      if (!currentMatch) {
+        const response = await screenCvAgainstJob(
+          getCandidateCv() ?? DEMO_CANDIDATE_CV,
+          job,
+          company?.company_name ?? undefined,
+          company?.email
+        );
+
+        if (response.status !== "scored") {
+          setScreenError(
+            response.status === "rejected"
+              ? response.validation.reject_reason ??
+                  "CV tidak terdeteksi sebagai dokumen yang sah."
+              : "Respons screening tidak dikenali."
+          );
+          return;
+        }
+
+        saveCandidateCv(response.validation.redacted_cv);
+        currentMatch = toJobMatch(
+          job.id,
+          CURRENT_CANDIDATE_ID,
+          response.match
+        );
+        setMatch(currentMatch);
+      }
+
+      const application: Application = {
+        id: nextApplicationId(),
+        job_match_id: currentMatch.id,
+        candidate_id: CURRENT_CANDIDATE_ID,
+        job_id: job.id,
+        status: "pending",
+        applied_at: new Date().toISOString().slice(0, 10),
+      };
+      upsertApplication(application);
+      setApplyOpen(false);
+    } catch (err: unknown) {
+      setScreenError(
+        err instanceof Error ? err.message : "Gagal mengirim lamaran."
+      );
+    } finally {
+      setApplying(false);
+    }
   }
 
   return (
@@ -62,11 +184,11 @@ export default function JobDetailClient({ jobId }: { jobId: number }) {
       {/* Navigasi Kembali ke Dashboard Publik */}
       <div className="flex items-center justify-between border-b border-slate-200 pb-4">
         <Link
-          href="/"
+          href={backHref}
           className="inline-flex items-center gap-2 text-sm font-bold text-slate-600 hover:text-brand-600 transition"
         >
           <Icon name="arrowLeft" className="h-4 w-4" />
-          Kembali ke Dashboard Publik
+          {backLabel}
         </Link>
         <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
           Detail Lowongan Pekerjaan
@@ -123,14 +245,14 @@ export default function JobDetailClient({ jobId }: { jobId: number }) {
                   Tertarik melamar posisi ini?
                 </p>
                 <p className="text-xs text-slate-600 mt-0.5">
-                  Masuk sebagai Pelamar untuk mencocokkan CV Anda dengan AI dan melamar pekerjaan dalam 1-klik.
+                  Masuk sebagai Pelamar untuk mencocokkan CV Anda dengan AI, lalu lengkapi data lamaran sebelum dikirim.
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap gap-2.5">
                 <Link
                   href={`/login?role=candidate&from=job&jobId=${job.id}&jobTitle=${encodeURIComponent(
                     job.title
-                  )}&redirect=${encodeURIComponent(`/jobs/${job.id}?auth=candidate`)}`}
+                  )}&redirect=${encodeURIComponent(`/candidate/jobs/${job.id}`)}`}
                   className="btn-primary btn-hard text-sm font-bold px-4 py-2"
                 >
                   Masuk sebagai Pelamar
@@ -147,7 +269,12 @@ export default function JobDetailClient({ jobId }: { jobId: number }) {
           ) : (
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                {match ? (
+                {screening ? (
+                  <div className="flex items-center gap-3 text-sm text-slate-600">
+                    <span className="h-8 w-8 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
+                    AI sedang mencocokkan CV Anda dengan lowongan ini…
+                  </div>
+                ) : match ? (
                   <div className="flex items-center gap-3">
                     <ScoreRing score={match.match_score} size={50} />
                     <div>
@@ -160,12 +287,12 @@ export default function JobDetailClient({ jobId }: { jobId: number }) {
                   </div>
                 ) : (
                   <p className="text-xs text-slate-600">
-                    Masuk sebagai Pelamar terverifikasi.
+                    {screenError || "Masuk sebagai Pelamar terverifikasi."}
                   </p>
                 )}
                 <button
-                  onClick={handleApply}
-                  disabled={hasApplied}
+                  onClick={() => setApplyOpen(true)}
+                  disabled={hasApplied || applying || screening || !match}
                   className={`px-6 py-2.5 rounded-xl font-bold text-sm ${
                     hasApplied
                       ? "bg-emerald-600 text-white cursor-default"
@@ -175,10 +302,12 @@ export default function JobDetailClient({ jobId }: { jobId: number }) {
                   {hasApplied ? (
                     <span className="inline-flex items-center gap-1.5">
                       <Icon name="check" className="h-4 w-4" strokeWidth={3} />
-                      Lamaran Berhasil Terkirim
+                      Sudah dilamar
                     </span>
+                  ) : applying || screening ? (
+                    "Memproses AI…"
                   ) : (
-                    "Lamar Sekarang (1-Klik AI)"
+                    "Lengkapi Lamaran"
                   )}
                 </button>
               </div>
@@ -187,7 +316,25 @@ export default function JobDetailClient({ jobId }: { jobId: number }) {
                   <AiInsight title="Resume Feedback">
                     {match.candidate_feedback}
                   </AiInsight>
+                  {match.hr_gaps.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {match.hr_gaps.map((gap) => (
+                        <span
+                          key={gap}
+                          className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200"
+                        >
+                          Kurang: {gap}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
+              )}
+              {screenError && (
+                <p className="flex items-center gap-1.5 border-t border-brand-100 pt-3 text-xs text-red-600">
+                  <Icon name="alert" className="h-3.5 w-3.5" />
+                  {screenError}
+                </p>
               )}
             </div>
           )}
@@ -236,6 +383,22 @@ export default function JobDetailClient({ jobId }: { jobId: number }) {
           </div>
         </div>
       </section>
+
+      {applyOpen && match && (
+        <ApplyDialog
+          job={job}
+          candidate={candidate}
+          match={match}
+          submitting={applying}
+          error={screenError}
+          onClose={() => {
+            if (!applying) setApplyOpen(false);
+          }}
+          onConfirm={() => {
+            void handleApply();
+          }}
+        />
+      )}
     </div>
   );
 }
