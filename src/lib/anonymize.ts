@@ -16,7 +16,7 @@ const PII_PATTERNS: Array<[RegExp, string]> = [
     "Gender: [REDACTED]",
   ],
   [
-    /\b(?:Universitas|University|Politeknik|Institut|Sekolah|Lulusan)\s+(?!\[REDACTED\])[^\n,;]+/gi,
+    /\b(?:Universitas|University|Politeknik|Institut|Sekolah|Lulusan)\s+(?!\[REDACTED\])[^\n,;.]+/gi,
     "[REDACTED]",
   ],
 ];
@@ -43,7 +43,16 @@ export function containsCvSignals(text: string): boolean {
     "magang",
     "internship",
     "pekerjaan",
+    "lulusan",
   ];
 
-  return signals.filter((signal) => normalized.includes(signal)).length >= 2;
+  const signalCount = signals.filter((signal) =>
+    normalized.includes(signal),
+  ).length;
+  const hasCvHeader =
+    /\b(?:nama|name|umur|usia|email|no\.?\s*hp|telepon|alamat|pendidikan|lulusan|skill|keahlian)\b/i.test(
+      text,
+    );
+
+  return signalCount >= 2 || (signalCount >= 1 && hasCvHeader);
 }
