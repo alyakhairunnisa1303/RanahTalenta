@@ -2,7 +2,7 @@
 
 import { Suspense, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import AuthShell, { Segmented } from "../../src/components/AuthShell";
 import Icon from "../../src/components/Icons";
 import { checkCompany } from "../../src/lib/screen-client";
@@ -18,6 +18,7 @@ const PUBLIC_DOMAINS = [
 ];
 
 function RegisterForm() {
+  const router = useRouter();
   const params = useSearchParams();
   const queryRole = params.get("role") as UserRole | null;
   const [role, setRole] = useState<UserRole>(
@@ -27,7 +28,9 @@ function RegisterForm() {
   const [emailError, setEmailError] = useState("");
   const [companyError, setCompanyError] = useState("");
   const [checking, setChecking] = useState(false);
-  const [step, setStep] = useState<"form" | "otp">("form");
+  const [step, setStep] = useState<"form" | "confirm">("form");
+  const [pendingRegistration, setPendingRegistration] = useState<Record<string, string> | null>(null);
+  const [registering, setRegistering] = useState(false);
 
   function validateEmail(value: string, currentRole: UserRole = role): string {
     if (currentRole !== "hrd") return "";
@@ -44,14 +47,25 @@ function RegisterForm() {
     setEmailError(err);
     if (err) return;
 
-    if (role !== "hrd") {
-      setStep("otp");
-      return;
-    }
-
     const data = new FormData(e.currentTarget);
     const companyName = String(data.get("company_name") ?? "").trim();
     const companyEmail = String(data.get("email") ?? email).trim();
+    const registration: Record<string, string> = {
+      name: String(data.get("name") ?? "").trim(),
+      email: companyEmail,
+      password: String(data.get("password") ?? ""),
+      role,
+      phone: String(data.get("phone") ?? "").trim(),
+      portfolio_url: String(data.get("portfolio_url") ?? "").trim(),
+      company_name: companyName,
+      legal_number: String(data.get("legal_number") ?? "").trim(),
+    };
+
+    if (role !== "hrd") {
+      setPendingRegistration(registration);
+      setStep("confirm");
+      return;
+    }
 
     if (!companyName) {
       setCompanyError("Nama perusahaan wajib diisi.");
@@ -67,7 +81,8 @@ function RegisterForm() {
         setCompanyError(response.result.reason);
         return;
       }
-      setStep("otp");
+      setPendingRegistration(registration);
+      setStep("confirm");
     } catch (checkErr: unknown) {
       setCompanyError(
         checkErr instanceof Error
@@ -79,41 +94,48 @@ function RegisterForm() {
     }
   }
 
+  async function completeRegistration() {
+    if (!pendingRegistration) return;
+    setRegistering(true);
+    setCompanyError("");
+    try {
+      const response = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pendingRegistration),
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Pendaftaran gagal.");
+      router.push(role === "candidate" ? "/candidate/dashboard" : "/hrd/dashboard");
+      router.refresh();
+    } catch (err) {
+      setCompanyError(err instanceof Error ? err.message : "Pendaftaran gagal.");
+    } finally {
+      setRegistering(false);
+    }
+  }
+
   const roles: [UserRole, string][] = [
     ["candidate", "Fitur Pelamar"],
     ["hrd", "Fitur HRD (Perusahaan)"],
   ];
 
-  if (step === "otp") {
+  if (step === "confirm") {
     return (
       <div className="w-full max-w-md text-center">
         <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-brand-50 text-brand-600">
           <Icon name="mail" className="h-6 w-6" />
         </span>
         <h1 className="mt-5 text-2xl font-extrabold tracking-tight text-ink-900">
-          Verifikasi email Anda
+          Konfirmasi pendaftaran
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-slate-500">
-          Kami mengirim kode OTP ke <b className="text-ink-900">{email}</b>.
-          Masukkan 6 digit kode untuk mengaktifkan akun.
+          Akun untuk <b className="text-ink-900">{email}</b> akan dibuat dan disimpan di database.
         </p>
-        <div className="mt-6 flex justify-center gap-2">
-          {[0, 1, 2, 3, 4, 5].map((i) => (
-            <input
-              key={i}
-              maxLength={1}
-              inputMode="numeric"
-              onChange={(e) => {
-                if (e.target.value)
-                  (e.target.nextElementSibling as HTMLInputElement | null)?.focus();
-              }}
-              className="h-13 w-11 rounded-lg border border-slate-300 bg-white text-center text-lg font-bold outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-brand-100"
-            />
-          ))}
-        </div>
-        <Link href={`/login?role=${role}`} className="btn-primary btn-hard btn-lg mt-6 w-full">
-          Verifikasi &amp; lanjut masuk
-        </Link>
+        {companyError && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{companyError}</p>}
+        <button onClick={() => void completeRegistration()} disabled={registering} className="btn-primary btn-hard btn-lg mt-6 w-full">
+          {registering ? "Membuat akun..." : "Buat akun & lanjut masuk"}
+        </button>
         <button
           onClick={() => setStep("form")}
           className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-brand-600"
@@ -241,9 +263,9 @@ function RegisterForm() {
             name="password"
             type="password"
             required
-            minLength={8}
+            minLength={10}
             className="input"
-            placeholder="Minimal 8 karakter"
+            placeholder="Minimal 10 karakter"
           />
         </div>
 

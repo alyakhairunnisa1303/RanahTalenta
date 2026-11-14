@@ -68,7 +68,7 @@ const jobInputSchema = z.object({
 
 const cvTargetFields = {
   jobDescription: z.string().trim().min(20).max(20_000).optional(),
-  jobs: z.array(jobInputSchema).min(1).max(200).optional(),
+  jobs: z.array(jobInputSchema).max(200).optional(),
   topN: z.number().int().min(1).max(20).default(5),
   jobTitle: z.string().trim().max(200).optional(),
   companyName: z.string().trim().max(200).optional(),
@@ -82,10 +82,6 @@ type CvTarget = {
   deepScan?: boolean;
 };
 
-function hasJobTarget(data: CvTarget): boolean {
-  return Boolean(data.jobDescription || (data.jobs && data.jobs.length > 0));
-}
-
 const companyRequestSchema = z.object({
   action: z.literal("company"),
   ...companyFields,
@@ -96,20 +92,13 @@ const jobRequestSchema = z.object({
   ...jobFields,
 });
 
-const cvBaseSchema = z.object(cvTargetFields).refine(hasJobTarget, {
-  message: "jobDescription atau jobs wajib diisi.",
-  path: ["jobDescription"],
-});
+const cvBaseSchema = z.object(cvTargetFields);
 
 const cvJsonRequestSchema = z
   .object({
     action: z.literal("cv"),
     cvText: z.string().min(40).max(30_000),
     ...cvTargetFields,
-  })
-  .refine(hasJobTarget, {
-    message: "jobDescription atau jobs wajib diisi.",
-    path: ["jobDescription"],
   });
 
 const MAX_SHORTLIST_PAIRS = 2_000;
@@ -389,13 +378,6 @@ async function runCvScreening(
   input: CvScreeningInput,
   requestId: string,
 ): Promise<Response> {
-  if (!input.jobs?.length && !input.jobDescription) {
-    return jsonResponse(
-      { error: "jobDescription atau jobs wajib diisi." },
-      400,
-    );
-  }
-
   const generations: GenerationMeta[] = [];
   const onGeneration = (meta: GenerationMeta) => generations.push(meta);
 
@@ -422,6 +404,18 @@ async function runCvScreening(
       validation,
       audit: createAuditMeta(
         { ...auditBase, cvText: "", reject_reason: validation.reject_reason },
+        generations,
+        requestId,
+      ),
+    });
+  }
+
+  if (!input.jobs?.length && !input.jobDescription) {
+    return jsonResponse({
+      status: "validated",
+      validation,
+      audit: createAuditMeta(
+        { ...auditBase, cvText: validation.redacted_cv },
         generations,
         requestId,
       ),

@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+:root {
+  --font-jakarta: "Plus Jakarta Sans Variable";
+}
+
 @theme inline {
   --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
 }

@@ -40,7 +40,7 @@ export default function JobBoard({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return openJobs.filter((job) => {
-      const company = getUser(job.hrd_id)?.company_name ?? "";
+      const company = job.company_name ?? getUser(job.hrd_id)?.company_name ?? "";
       const matchQuery =
         !q ||
         job.title.toLowerCase().includes(q) ||

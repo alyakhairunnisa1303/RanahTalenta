@@ -18,14 +18,32 @@ function LoginForm() {
   const [role, setRole] = useState<UserRole>(
     queryRole === "hrd" ? "hrd" : "candidate"
   );
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    // Jika ada parameter redirect untuk pelamar, arahkan ke halaman tujuan tersebut
-    if (role === "candidate") {
-      router.push(redirect || "/candidate/dashboard");
-    } else {
-      router.push("/hrd/dashboard");
+    setSubmitting(true);
+    setError("");
+    const data = new FormData(e.currentTarget);
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: data.get("email"),
+          password: data.get("password"),
+          role,
+        }),
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Login gagal.");
+      router.push(role === "candidate" ? redirect || "/candidate/dashboard" : "/hrd/dashboard");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Login gagal.");
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -86,9 +104,9 @@ function LoginForm() {
             {role === "hrd" ? "Email Perusahaan" : "Email Pelamar"}
           </label>
           <input
+            name="email"
             type="email"
             required
-            defaultValue={role === "hrd" ? "hrd@nusantaratech.co.id" : "pelamar@example.com"}
             className="input"
             placeholder={role === "hrd" ? "hrd@perusahaan.co.id" : "nama@email.com"}
           />
@@ -96,21 +114,22 @@ function LoginForm() {
         <div>
           <label className="label">Password</label>
           <input
+            name="password"
             type="password"
             required
-            defaultValue="password123"
             className="input"
             placeholder="••••••••"
           />
         </div>
 
-        <button type="submit" className="btn-primary btn-hard btn-lg w-full">
-          Masuk sebagai {role === "candidate" ? "Pelamar" : "HRD"}
+        {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+        <button type="submit" className="btn-primary btn-hard btn-lg w-full" disabled={submitting}>
+          {submitting ? "Memeriksa akun..." : `Masuk sebagai ${role === "candidate" ? "Pelamar" : "HRD"}`}
         </button>
       </form>
 
       <div className="mt-6 rounded-lg bg-slate-50 p-3.5 text-xs text-slate-500">
-        <span className="font-semibold text-slate-700">Mode Demo:</span> Formulir sudah terisi otomatis dengan akun contoh. Tekan tombol &quot;Masuk&quot; untuk langsung melanjutkan.
+        Masuk menggunakan email dan password akun yang sudah terdaftar.
       </div>
     </div>
   );

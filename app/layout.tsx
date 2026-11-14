@@ -1,13 +1,7 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans } from "next/font/google";
+import "@fontsource-variable/plus-jakarta-sans/wght.css";
 import "./globals.css";
 import SiteChrome from "../src/components/SiteChrome";
-
-const jakarta = Plus_Jakarta_Sans({
-  subsets: ["latin"],
-  variable: "--font-jakarta",
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: "RanahTalenta — Portal Karir Cerdas",
@@ -19,7 +13,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="id" className={jakarta.variable}>
+    <html lang="id">
       <body className="min-h-screen">
         <SiteChrome>{children}</SiteChrome>
       </body>

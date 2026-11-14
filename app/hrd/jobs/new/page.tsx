@@ -3,8 +3,8 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import Icon from "../../../../src/components/Icons";
-import { CURRENT_HRD_ID, getUser } from "../../../../src/data/mockData";
-import { addCustomJob, nextJobId } from "../../../../src/lib/local-store";
+import { useCurrentUser } from "../../../../src/lib/use-current-user";
+import { notifyDataChanged } from "../../../../src/lib/client-events";
 import { checkJob } from "../../../../src/lib/screen-client";
 import type { ScamCheckResult } from "../../../../src/types/contract";
 
@@ -25,6 +25,7 @@ const CRITERIA: [keyof Weights, string][] = [
 type Phase = "form" | "checking" | "safe" | "flagged";
 
 export default function NewJobPage() {
+  const { user: hrd } = useCurrentUser();
   const [weights, setWeights] = useState<Weights>({
     hardSkill: 60,
     experience: 30,
@@ -47,7 +48,6 @@ export default function NewJobPage() {
     const requirements = String(data.get("requirements") ?? "").trim();
     const location = String(data.get("location") ?? "").trim();
     const salary = String(data.get("salary_range") ?? "").trim();
-    const hrd = getUser(CURRENT_HRD_ID);
 
     setPhase("checking");
     setCheckError("");
@@ -73,19 +73,15 @@ export default function NewJobPage() {
         return;
       }
 
-      const id = nextJobId();
-      addCustomJob({
-        id,
-        hrd_id: CURRENT_HRD_ID,
-        title,
-        description,
-        requirements,
-        location,
-        salary_range: salary || null,
-        status: "open",
-        created_at: new Date().toISOString().slice(0, 10),
+      const created = await fetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, description, requirements, location, salary_range: salary || null }),
       });
-      setCreatedJobId(id);
+      const createdResult = await created.json() as { job?: { id: number }; error?: string };
+      if (!created.ok || !createdResult.job) throw new Error(createdResult.error ?? "Lowongan gagal disimpan.");
+      notifyDataChanged();
+      setCreatedJobId(createdResult.job.id);
       setPhase("safe");
     } catch (err: unknown) {
       setCheckError(

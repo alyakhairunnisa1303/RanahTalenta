@@ -13,125 +13,88 @@ import {
   Hero,
   HeroStat,
 } from "@/src/components/AiUi";
-import { getCvForCandidate } from "@/src/data/demoCvs";
-import {
-  getApplicantsForJob,
-  getUser,
-} from "@/src/data/mockData";
 import { splitLines } from "@/src/lib/format";
-import {
-  getAllApplications,
-  upsertApplication,
-} from "@/src/lib/local-store";
-import { screenCvAgainstJob, toJobMatch } from "@/src/lib/screen-client";
-import { useAllJobs } from "@/src/lib/use-all-jobs";
+import { notifyDataChanged } from "@/src/lib/client-events";
 import type {
   ApplicantRow,
   ApplicationStatus,
-  JobMatch,
+  Job,
 } from "@/src/types/hirematch";
+import type { ApplicationDocumentRecord } from "@/src/lib/application-documents";
 
 export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
-  const allJobs = useAllJobs();
-  const job = allJobs.find((item) => item.id === jobId);
-
-  const [rows, setRows] = useState<ApplicantRow[]>(() =>
-    getApplicantsForJob(jobId)
-  );
+  const [job, setJob] = useState<Job | null>(null);
+  const [jobLoaded, setJobLoaded] = useState(false);
+  const [rows, setRows] = useState<ApplicantRow[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [scoring, setScoring] = useState(true);
   const [scoringError, setScoringError] = useState("");
+  const [applicationDocument, setApplicationDocument] = useState<ApplicationDocumentRecord | null>(null);
+  const [documentResolvedFor, setDocumentResolvedFor] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!job) return;
+    let cancelled = false;
+    fetch(`/api/jobs/${jobId}`, { cache: "no-store" })
+      .then(async (response) => response.ok ? (await response.json() as { job: Job }).job : null)
+      .then((record) => { if (!cancelled) setJob(record); })
+      .catch(() => { if (!cancelled) setJob(null); })
+      .finally(() => { if (!cancelled) setJobLoaded(true); });
+    return () => { cancelled = true; };
+  }, [jobId]);
+
+  useEffect(() => {
+    if (selectedId === null) return;
 
     let cancelled = false;
-    const company = getUser(job.hrd_id);
-    const baseRows = getApplicantsForJob(job.id);
-    const storedApplications = getAllApplications().filter(
-      (application) => application.job_id === job.id
-    );
-    const merged = new Map<number, ApplicantRow>();
-
-    for (const row of baseRows) {
-      merged.set(row.application.id, row);
-    }
-
-    for (const application of storedApplications) {
-      const existing = merged.get(application.id);
-      if (existing) {
-        merged.set(application.id, { ...existing, application });
-        continue;
-      }
-      const candidate = getUser(application.candidate_id);
-      if (!candidate) continue;
-      const placeholder: JobMatch = {
-        id: application.job_match_id,
-        candidate_id: application.candidate_id,
-        job_id: application.job_id,
-        match_score: 0,
-        candidate_feedback: "",
-        hr_strengths: [],
-        hr_gaps: [],
-        interview_questions: [],
-        created_at: application.applied_at,
-      };
-      merged.set(application.id, {
-        application,
-        match: placeholder,
-        candidate,
-      });
-    }
-
-    let failed = false;
-
-    Promise.all(
-      Array.from(merged.values()).map(async (row) => {
-        try {
-          const response = await screenCvAgainstJob(
-            getCvForCandidate(row.candidate.id),
-            job,
-            company?.company_name ?? undefined,
-            company?.email
+    fetch(`/api/applications/${selectedId}/document`, { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return (await response.json()) as ApplicationDocumentRecord;
+      })
+      .then((record) => {
+        const application = rows.find((row) => row.application.id === selectedId)?.application;
+        if (!cancelled) {
+          setApplicationDocument(
+            record &&
+              application &&
+              record.candidate_id === application.candidate_id &&
+              record.job_id === application.job_id
+              ? record
+              : null,
           );
-          if (response.status === "scored") {
-            return {
-              ...row,
-              match: toJobMatch(
-                job.id,
-                row.candidate.id,
-                response.match,
-                row.match.id
-              ),
-            };
-          }
-          return row;
-        } catch {
-          failed = true;
-          return row;
+          setDocumentResolvedFor(selectedId);
         }
       })
-    )
-      .then((scoredRows) => {
-        if (cancelled) return;
-        setRows(scoredRows);
-        if (failed) {
-          setScoringError(
-            "Sebagian skor gagal diperbarui; menampilkan skor terakhir."
-          );
+      .catch(() => {
+        if (!cancelled) {
+          setApplicationDocument(null);
+          setDocumentResolvedFor(selectedId);
         }
       })
-      .finally(() => {
-        if (!cancelled) setScoring(false);
-      });
 
     return () => {
       cancelled = true;
     };
+  }, [selectedId, rows]);
+
+  useEffect(() => {
+    if (!job) return;
+    let cancelled = false;
+    fetch(`/api/jobs/${job.id}/applications`, { cache: "no-store" })
+      .then(async (response) => {
+        const result = await response.json() as { applicants?: ApplicantRow[]; error?: string };
+        if (!response.ok) throw new Error(result.error ?? "Pelamar gagal dimuat.");
+        return result.applicants ?? [];
+      })
+      .then((applicants) => { if (!cancelled) setRows(applicants); })
+      .catch((error: unknown) => { if (!cancelled) setScoringError(error instanceof Error ? error.message : "Pelamar gagal dimuat."); })
+      .finally(() => { if (!cancelled) setScoring(false); });
+    return () => { cancelled = true; };
   }, [job]);
 
   if (!job) {
+    if (!jobLoaded) return <div className="mx-auto max-w-3xl px-4 py-16 text-center text-slate-500">Memuat lowongan...</div>;
     return (
       <div className="mx-auto max-w-3xl px-4 py-16 text-center text-slate-500">
         Lowongan tidak ditemukan.{" "}
@@ -157,18 +120,27 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
   ).length;
   const low = rows.length - high - mid;
 
-  function setStatus(applicationId: number, status: ApplicationStatus) {
-    const current = rows.find((r) => r.application.id === applicationId);
-    if (current) {
-      upsertApplication({ ...current.application, status });
+  async function setStatus(applicationId: number, status: ApplicationStatus): Promise<boolean> {
+    try {
+      const response = await fetch(`/api/applications/${applicationId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (!response.ok) {
+        setScoringError("Status lamaran gagal diperbarui.");
+        return false;
+      }
+      const refreshed = await fetch(`/api/jobs/${jobId}/applications`, { cache: "no-store" });
+      if (!refreshed.ok) throw new Error("Daftar pelamar gagal diperbarui.");
+      const result = await refreshed.json() as { applicants: ApplicantRow[] };
+      setRows(result.applicants);
+      notifyDataChanged();
+      return true;
+    } catch {
+      setScoringError("Status lamaran gagal diperbarui.");
+      return false;
     }
-    setRows((prev) =>
-      prev.map((r) =>
-        r.application.id === applicationId
-          ? { ...r, application: { ...r.application, status } }
-          : r
-      )
-    );
   }
 
   // Sistem Blind Screening Otomatis 100%:
@@ -177,10 +149,10 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
   const isShortlisted = (r: ApplicantRow) => r.application.status === "shortlisted";
   const revealed = (r: ApplicantRow) => isShortlisted(r);
 
-  function inviteCandidate(applicationId: number) {
+  async function inviteCandidate(applicationId: number) {
     const target = rows.find((r) => r.application.id === applicationId);
-    setStatus(applicationId, "shortlisted");
-    if (target) {
+    const updated = await setStatus(applicationId, "shortlisted");
+    if (target && updated) {
       setToast(
         `Sukses mengundang ${target.candidate.name}! Informasi detail pelamar dan kontak resmi kini otomatis terbuka.`
       );
@@ -583,6 +555,32 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
                 ({scoreMeta(selected.match.match_score).label}) dengan{" "}
                 {selected.match.hr_strengths.length} kekuatan utama terhadap requirement posisi.
               </AiInsight>
+
+              <section className="rounded-xl border border-slate-200 p-4">
+                <h3 className="text-sm font-semibold text-ink-900">Surat Lamaran</h3>
+                {documentResolvedFor !== selected.application.id ? (
+                  <p className="mt-2 text-sm text-slate-500">Memuat surat lamaran...</p>
+                ) : !isShortlisted(selected) ? (
+                  <p className="mt-2 text-sm text-slate-500">Surat lamaran terbuka setelah kandidat diundang wawancara.</p>
+                ) : !applicationDocument || applicationDocument.application_id !== selected.application.id ? (
+                  <p className="mt-2 text-sm text-slate-500">Belum ada surat lamaran tersimpan.</p>
+                ) : (
+                  <div className="mt-2 space-y-3 text-sm text-slate-700">
+                    {applicationDocument.cover_letter && (
+                      <p className="whitespace-pre-wrap">{applicationDocument.cover_letter}</p>
+                    )}
+                    {applicationDocument.file_name && (
+                      <a
+                        className="inline-flex items-center gap-2 font-semibold text-brand-700 underline"
+                        href={`/api/applications/${selected.application.id}/file`}
+                      >
+                        <Icon name="file" className="h-4 w-4" />
+                        Unduh {applicationDocument.file_name} ({(applicationDocument.file_size / (1024 * 1024)).toFixed(2)} MB)
+                      </a>
+                    )}
+                  </div>
+                )}
+              </section>
 
               <section>
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-emerald-700">

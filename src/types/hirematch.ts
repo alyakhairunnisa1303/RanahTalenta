@@ -10,6 +10,7 @@ export interface User {
   email: string;
   role: UserRole;
   company_name: string | null;
+  industry?: string | null;
   legal_number: string | null;
   phone: string | null;
   portfolio_url: string | null;
@@ -28,6 +29,11 @@ export interface Job {
   salary_range: string | null;
   status: JobStatus;
   created_at: string; // format YYYY-MM-DD
+  company_name?: string | null;
+  company_industry?: string | null;
+  company_email?: string | null;
+  company_legal_number?: string | null;
+  company_is_verified?: boolean;
 }
 
 export interface JobMatch {
@@ -51,6 +57,7 @@ export interface Application {
   job_id: number;
   status: ApplicationStatus;
   applied_at: string;
+  match_score?: number;
 }
 
 // Gabungan application + job_match + user, dipakai di leaderboard HRD

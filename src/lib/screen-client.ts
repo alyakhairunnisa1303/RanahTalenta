@@ -45,7 +45,17 @@ export interface RejectedCvResponse {
   audit: ScreenAudit;
 }
 
-export type CvScreenResponse = RankedCvResponse | ScoredCvResponse | RejectedCvResponse;
+export interface ValidatedCvResponse {
+  status: "validated";
+  validation: CvValidationResult;
+  audit: ScreenAudit;
+}
+
+export type CvScreenResponse =
+  | RankedCvResponse
+  | ScoredCvResponse
+  | RejectedCvResponse
+  | ValidatedCvResponse;
 
 export class ScreenApiError extends Error {
   issues: string[];

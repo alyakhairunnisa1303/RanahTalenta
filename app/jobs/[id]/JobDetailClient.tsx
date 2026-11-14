@@ -2,25 +2,19 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import ApplyDialog from "@/src/components/ApplyDialog";
 import Icon from "@/src/components/Icons";
 import { CompanyAvatar, VerifiedBadge } from "@/src/components/JobCard";
 import ScoreBadge, { ScoreRing } from "@/src/components/ScoreBadge";
 import { AiInsight } from "@/src/components/AiUi";
-import { DEMO_CANDIDATE_CV } from "@/src/data/demoCvs";
-import { CURRENT_CANDIDATE_ID, getUser } from "@/src/data/mockData";
 import { formatDate, splitLines } from "@/src/lib/format";
-import {
-  getCandidateCv,
-  nextApplicationId,
-  saveCandidateCv,
-  upsertApplication,
-} from "@/src/lib/local-store";
+import { createApplication } from "@/src/lib/application-client";
+import { notifyDataChanged } from "@/src/lib/client-events";
+import { useCurrentUser } from "@/src/lib/use-current-user";
+import type { ApplyFormValues } from "@/src/components/ApplyDialog";
 import { screenCvAgainstJob, toJobMatch } from "@/src/lib/screen-client";
 import { useAllApplications } from "@/src/lib/use-all-applications";
-import { useAllJobs } from "@/src/lib/use-all-jobs";
-import type { Application, JobMatch } from "@/src/types/hirematch";
+import type { Job, JobMatch } from "@/src/types/hirematch";
 
 export default function JobDetailClient({
   jobId,
@@ -29,18 +23,23 @@ export default function JobDetailClient({
   jobId: number;
   candidateMode?: boolean;
 }) {
-  const searchParams = useSearchParams();
-  const isCandidateAuth =
-    candidateMode || searchParams.get("auth") === "candidate";
+  const { user } = useCurrentUser();
+  const isCandidateAuth = candidateMode || user?.role === "candidate";
   const backHref = isCandidateAuth ? "/candidate/jobs" : "/";
   const backLabel = isCandidateAuth
     ? "Kembali ke Cari Lowongan"
     : "Kembali ke Dashboard Publik";
 
-  const allJobs = useAllJobs();
-  const job = allJobs.find((item) => item.id === jobId);
-  const company = job ? getUser(job.hrd_id) : undefined;
-  const candidate = getUser(CURRENT_CANDIDATE_ID);
+  const [job, setJob] = useState<Job | null>(null);
+  const [jobLoaded, setJobLoaded] = useState(false);
+  const company = job ? {
+    company_name: job.company_name,
+    industry: job.company_industry,
+    email: job.company_email,
+    legal_number: job.company_legal_number,
+    is_verified: job.company_is_verified,
+  } : undefined;
+  const candidate = user?.role === "candidate" ? user : undefined;
 
   const [match, setMatch] = useState<JobMatch | null>(null);
   const [screening, setScreening] = useState(false);
@@ -51,11 +50,21 @@ export default function JobDetailClient({
   const hasApplied = applications.some(
     (application) =>
       application.job_id === jobId &&
-      application.candidate_id === CURRENT_CANDIDATE_ID
+      application.candidate_id === user?.id
   );
 
   useEffect(() => {
-    if (!job || !isCandidateAuth) return;
+    let cancelled = false;
+    fetch(`/api/jobs/${jobId}`, { cache: "no-store" })
+      .then(async (response) => response.ok ? (await response.json() as { job: Job }).job : null)
+      .then((record) => { if (!cancelled) setJob(record); })
+      .catch(() => { if (!cancelled) setJob(null); })
+      .finally(() => { if (!cancelled) setJobLoaded(true); });
+    return () => { cancelled = true; };
+  }, [jobId]);
+
+  useEffect(() => {
+    if (!job || !isCandidateAuth || user?.role !== "candidate") return;
 
     let cancelled = false;
     Promise.resolve().then(() => {
@@ -64,18 +73,27 @@ export default function JobDetailClient({
       setScreenError("");
     });
 
-    screenCvAgainstJob(
-      getCandidateCv() ?? DEMO_CANDIDATE_CV,
-      job,
-      company?.company_name ?? undefined,
-      company?.email
-    )
+    fetch("/api/candidate/cv", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Unggah CV terlebih dahulu melalui Dashboard Pelamar.");
+        return (await response.json() as { cv_text: string }).cv_text;
+      })
+      .then((cvText) => screenCvAgainstJob(
+        cvText,
+        job,
+        company?.company_name ?? undefined,
+        company?.email ?? undefined,
+      ))
       .then((response) => {
         if (cancelled) return;
         if (response.status === "scored") {
-          saveCandidateCv(response.validation.redacted_cv);
+          void fetch("/api/candidate/cv", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ cv_text: response.validation.redacted_cv }),
+          });
           setMatch(
-            toJobMatch(job.id, CURRENT_CANDIDATE_ID, response.match)
+            toJobMatch(job.id, user.id, response.match)
           );
           return;
         }
@@ -101,9 +119,10 @@ export default function JobDetailClient({
     return () => {
       cancelled = true;
     };
-  }, [job, isCandidateAuth, company?.company_name, company?.email]);
+  }, [job, isCandidateAuth, user?.id, user?.role, company?.company_name, company?.email]);
 
   if (!job) {
+    if (!jobLoaded) return <div className="mx-auto max-w-3xl px-4 py-20 text-center text-slate-500">Memuat lowongan...</div>;
     return (
       <div className="mx-auto max-w-3xl px-4 py-20 text-center">
         <Icon name="alert" className="mx-auto h-12 w-12 text-slate-300" />
@@ -124,51 +143,15 @@ export default function JobDetailClient({
 
   const requirementsList = splitLines(job.requirements);
 
-  async function handleApply() {
-    if (!job || hasApplied || applying) return;
+  async function handleApply(values: ApplyFormValues) {
+    if (!job || !match || user?.role !== "candidate" || hasApplied || applying) return;
 
     setApplying(true);
     setScreenError("");
 
     try {
-      let currentMatch = match;
-
-      if (!currentMatch) {
-        const response = await screenCvAgainstJob(
-          getCandidateCv() ?? DEMO_CANDIDATE_CV,
-          job,
-          company?.company_name ?? undefined,
-          company?.email
-        );
-
-        if (response.status !== "scored") {
-          setScreenError(
-            response.status === "rejected"
-              ? response.validation.reject_reason ??
-                  "CV tidak terdeteksi sebagai dokumen yang sah."
-              : "Respons screening tidak dikenali."
-          );
-          return;
-        }
-
-        saveCandidateCv(response.validation.redacted_cv);
-        currentMatch = toJobMatch(
-          job.id,
-          CURRENT_CANDIDATE_ID,
-          response.match
-        );
-        setMatch(currentMatch);
-      }
-
-      const application: Application = {
-        id: nextApplicationId(),
-        job_match_id: currentMatch.id,
-        candidate_id: CURRENT_CANDIDATE_ID,
-        job_id: job.id,
-        status: "pending",
-        applied_at: new Date().toISOString().slice(0, 10),
-      };
-      upsertApplication(application);
+      await createApplication(match, values);
+      notifyDataChanged();
       setApplyOpen(false);
     } catch (err: unknown) {
       setScreenError(
@@ -375,8 +358,9 @@ export default function JobDetailClient({
               {company?.is_verified && <VerifiedBadge />}
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Legalitas: {company?.legal_number ? `NIB/NPWP terdaftar (${company.legal_number})` : "Dalam proses verifikasi"}
+              {company?.is_verified ? "Perusahaan terverifikasi" : "Verifikasi perusahaan dalam proses"}
             </p>
+            {company?.industry && <p className="mt-2 text-sm font-medium text-slate-700">Bidang usaha: {company.industry}</p>}
             <p className="mt-2 text-sm text-slate-600">
               Perusahaan ini telah menggunakan sistem rekrutmen objektif berbasis AI di platform RanahTalenta.
             </p>
@@ -388,14 +372,14 @@ export default function JobDetailClient({
         <ApplyDialog
           job={job}
           candidate={candidate}
-          match={match}
+        match={match}
           submitting={applying}
           error={screenError}
           onClose={() => {
             if (!applying) setApplyOpen(false);
           }}
-          onConfirm={() => {
-            void handleApply();
+          onConfirm={(values) => {
+            void handleApply(values);
           }}
         />
       )}

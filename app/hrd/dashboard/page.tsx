@@ -9,33 +9,26 @@ import {
   HeroStat,
 } from "../../../src/components/AiUi";
 import {
-  CURRENT_HRD_ID,
-  getUser,
-  jobMatches,
   jobStatusMeta,
 } from "../../../src/data/mockData";
 import { formatDate } from "../../../src/lib/format";
 import { useAllApplications } from "../../../src/lib/use-all-applications";
 import { useAllJobs } from "../../../src/lib/use-all-jobs";
+import { useCurrentUser } from "../../../src/lib/use-current-user";
 
 export default function HrdDashboard() {
   const allJobs = useAllJobs();
   const applications = useAllApplications();
+  const { user: hrd } = useCurrentUser();
 
-  const hrd = getUser(CURRENT_HRD_ID);
-  const myJobs = allJobs.filter((j) => j.hrd_id === CURRENT_HRD_ID);
+  const myJobs = allJobs.filter((j) => j.hrd_id === hrd?.id);
 
   const rowsByJob = myJobs.map((job) => {
     const apps = applications.filter((application) => application.job_id === job.id);
     return {
       job,
       total: apps.length,
-      high: apps.filter((application) => {
-        const match = jobMatches.find(
-          (item) => item.id === application.job_match_id
-        );
-        return (match?.match_score ?? 0) >= 80;
-      }).length,
+      high: apps.filter((application) => (application.match_score ?? 0) >= 80).length,
     };
   });
 
@@ -45,14 +38,9 @@ export default function HrdDashboard() {
 
   const openJobs = myJobs.filter((j) => j.status === "open").length;
   const total = myApplications.length;
-  const high = myApplications.filter((application) => {
-    const match = jobMatches.find((item) => item.id === application.job_match_id);
-    return (match?.match_score ?? 0) >= 80;
-  }).length;
+  const high = myApplications.filter((application) => (application.match_score ?? 0) >= 80).length;
   const mid = myApplications.filter((application) => {
-    const score =
-      jobMatches.find((item) => item.id === application.job_match_id)
-        ?.match_score ?? 0;
+    const score = application.match_score ?? 0;
     return score >= 60 && score < 80;
   }).length;
   const low = total - high - mid;

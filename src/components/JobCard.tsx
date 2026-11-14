@@ -37,6 +37,7 @@ export default function JobCard({
 }) {
   // Pengganti JOIN jobs -> users (hrd_id)
   const company = getUser(job.hrd_id);
+  const companyName = job.company_name ?? company?.company_name;
   const requirementsList = splitLines(job.requirements).slice(0, 2);
 
   // Dashboard publik wajib login; area pelamar langsung membuka detail lowongan.
@@ -51,14 +52,14 @@ export default function JobCard({
       className="card-bold lift group flex flex-col p-5 transition duration-200 hover:border-brand-600"
     >
       <div className="flex items-start gap-3">
-        <CompanyAvatar name={company?.company_name} className="h-12 w-12 text-lg" />
+        <CompanyAvatar name={companyName} className="h-12 w-12 text-lg" />
         <div className="min-w-0 flex-1">
           <h3 className="text-[17px] font-bold leading-snug text-ink-900 group-hover:text-brand-600">
             {job.title}
           </h3>
           <p className="mt-0.5 flex items-center gap-1.5 text-sm font-medium text-slate-500">
-            <span className="truncate">{company?.company_name}</span>
-            {company?.is_verified && <VerifiedBadge />}
+            <span className="truncate">{companyName}</span>
+            {(job.company_is_verified ?? company?.is_verified) && <VerifiedBadge />}
           </p>
         </div>
       </div>

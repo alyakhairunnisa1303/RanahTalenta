@@ -14,6 +14,7 @@ export interface ApplyFormValues {
   phone: string;
   portfolioUrl: string;
   coverLetter: string;
+  coverLetterFile: File | null;
   acceptedRequirements: boolean;
   confirmedTruth: boolean;
 }
@@ -33,7 +34,12 @@ function validate(values: ApplyFormValues): FieldErrors {
     errors.phone = "Nomor HP tidak valid.";
   }
   if (values.coverLetter.trim().length < 30) {
-    errors.coverLetter = "Surat lamaran minimal 30 karakter.";
+    if (!values.coverLetterFile) {
+      errors.coverLetter = "Isi surat lamaran minimal 30 karakter atau unggah dokumen.";
+    }
+  }
+  if (values.coverLetterFile && values.coverLetterFile.size > 5 * 1024 * 1024) {
+    errors.coverLetterFile = "Ukuran dokumen maksimal 5 MB.";
   }
   if (!values.acceptedRequirements) {
     errors.acceptedRequirements = "Konfirmasi pemenuhan persyaratan.";
@@ -62,7 +68,7 @@ export default function ApplyDialog({
   onClose: () => void;
   onConfirm: (values: ApplyFormValues) => void;
 }) {
-  const company = getUser(job.hrd_id);
+  const companyName = job.company_name ?? getUser(job.hrd_id)?.company_name;
   const requirements = splitLines(job.requirements);
   const [values, setValues] = useState<ApplyFormValues>(() => ({
     name: candidate?.name ?? "",
@@ -70,6 +76,7 @@ export default function ApplyDialog({
     phone: candidate?.phone ?? "",
     portfolioUrl: candidate?.portfolio_url ?? "",
     coverLetter: "",
+    coverLetterFile: null,
     acceptedRequirements: false,
     confirmedTruth: false,
   }));
@@ -131,13 +138,13 @@ export default function ApplyDialog({
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
             <div className="flex items-start gap-3">
               <CompanyAvatar
-                name={company?.company_name}
+                name={companyName}
                 className="h-11 w-11 text-base"
               />
               <div className="min-w-0 flex-1">
                 <p className="font-bold text-ink-900">{job.title}</p>
                 <p className="text-sm text-slate-500">
-                  {company?.company_name} · {job.location}
+                  {companyName} · {job.location}
                 </p>
               </div>
               <ScoreBadge score={match.match_score} />
@@ -237,13 +244,61 @@ export default function ApplyDialog({
             <label className="label" htmlFor="apply-cover-letter">
               Surat lamaran / motivasi
             </label>
+            <label className="mt-1.5 flex cursor-pointer flex-col items-center rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-center transition hover:border-brand-400 hover:bg-brand-50">
+              <Icon name="upload" className="h-5 w-5 text-brand-600" />
+              <span className="mt-2 text-sm font-semibold text-ink-900">
+                {values.coverLetterFile ? "Ganti dokumen" : "Pilih dokumen surat lamaran"}
+              </span>
+              <span className="mt-1 text-xs text-slate-500">
+                PDF, DOC, DOCX, atau TXT · Maksimal 5 MB
+              </span>
+              <input
+                className="sr-only"
+                type="file"
+                accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] ?? null;
+                  const extensionAllowed = !!file && /\.(pdf|doc|docx|txt)$/i.test(file.name);
+                  const nextValues = {
+                    ...values,
+                    coverLetterFile: file && extensionAllowed ? file : null,
+                  };
+                  setValues(nextValues);
+                  const nextErrors = validate(nextValues);
+                  if (file && !extensionAllowed) {
+                    nextErrors.coverLetterFile = "Format dokumen harus PDF, DOC, DOCX, atau TXT.";
+                  }
+                  setErrors(nextErrors);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+            {values.coverLetterFile && (
+              <div className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                <span className="min-w-0 truncate text-slate-700">{values.coverLetterFile.name} · {(values.coverLetterFile.size / (1024 * 1024)).toFixed(2)} MB</span>
+                <button
+                  type="button"
+                  className="shrink-0 text-xs font-semibold text-red-600 hover:text-red-700"
+                  onClick={() => {
+                    const nextValues = { ...values, coverLetterFile: null };
+                    setValues(nextValues);
+                    setErrors(validate(nextValues));
+                  }}
+                >
+                  Hapus
+                </button>
+              </div>
+            )}
+            {errors.coverLetterFile && (
+              <p className="mt-1 text-xs text-red-600">{errors.coverLetterFile}</p>
+            )}
+            <p className="my-3 text-center text-xs text-slate-400">atau tulis surat lamaran di bawah</p>
             <textarea
               id="apply-cover-letter"
               className="input mt-1.5 min-h-28"
               value={values.coverLetter}
               onChange={(event) => update("coverLetter", event.target.value)}
               placeholder="Ceritakan alasan Anda cocok untuk posisi ini..."
-              required
             />
             <p className="mt-1 text-xs text-slate-400">
               {values.coverLetter.trim().length}/30 karakter minimal
