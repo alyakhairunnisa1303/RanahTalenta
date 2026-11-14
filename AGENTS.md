@@ -10,28 +10,49 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # HireMatch AI — agent notes
 
-Next.js 16.4.6 + React 19.3 App Router, TypeScript strict, Tailwind v4. `node_modules` is not committed — run `npm install` before doing anything. Use npm; `package-lock.json` (lockfile v3) is the source of truth even though the README lists yarn/pnpm/bun.
+Frontend-only Next.js 16 App Router demo of an AI job-matching portal. There is no backend, database, or real auth. UI copy and code comments are Indonesian — keep new ones in Indonesian.
+
+## Routing gotcha: root `app/` is the live router
+
+- Real routes live in root `app/`. A second `src/app/` exists (only `login`, `register`, and an empty `api/screen/route.ts`), but Next ignores it whenever root `app/` exists.
+- Add new pages/routes under root `app/` (e.g. `app/api/screen/route.ts`). Anything added under `src/app/` will not be served.
+- `src/app/{login,register}` are stale duplicates using non-resolving `@/components/*` imports; the served versions are `app/{login,register}`. Don't edit the wrong copy (and expect `tsc` noise from those dead files).
+
+## Imports
+
+- The `@/*` alias maps to the repo **root** (`./*`), not `./src/*`. Use relative imports (dominant style in `app/`) or `@/src/...`.
+- `@/components/*` does not resolve here; only the stale `src/app/` files use it.
+
+## Data and state
+
+- All data comes from `src/data/mockData.ts` (`users`, `jobs`, `jobMatches`, `applications`, plus `getUser` / `getJob` / `getApplicantsForJob`). `CURRENT_CANDIDATE_ID` / `CURRENT_HRD_ID` simulate the logged-in user.
+- Mutations are local React state and `setTimeout` simulations; `// TODO` comments mark where real API calls belong.
+- Types in `src/types/hirematch.ts` are deliberately snake_case to mirror the external `schema.sql`; don't camelCase them. `requirements` is newline-separated (use `splitLines` in `src/lib/format.ts`).
+- Score bands live in `src/components/ScoreBadge.tsx`: `>=80` Highly Recommended, `>=60` Potential, else Not Recommended.
+
+## AI screening pipeline is scaffolded, not implemented
+
+- These files are intentionally empty (0 bytes): `src/lib/{extract,anonymize,scoring,scorer,gemini,prompts,scoring.mock}.ts`, `src/types/contract.ts`, `src/data/dummy-results.ts`, `scripts/test-scoring.ts`, `samples/jd.txt`, `samples/cvs/`.
+- `@google/genai`, `mammoth`, `pdf-parse`, and `zod` are installed but unused; `.env.example` is empty and no env vars are read yet.
+- Implement extraction/scoring there rather than inventing parallel modules.
 
 ## Commands
 
-- `npm install` — required first; `next` is not present in a fresh clone.
-- `npm run dev` / `npm run build` / `npm run start`
-- `npm run lint` — runs `eslint` directly (flat config), not `next lint`.
-- `npx tsc --noEmit` — typecheck; there is no `typecheck` script.
-- `npx tsx scripts/test-scoring.ts` — only test entrypoint (manual harness; no Jest/Vitest). `tsx` is a devDependency.
+- `npm install` first — `node_modules/` is not checked in.
+- `npm run dev`, `npm run build`, `npm run start`
+- `npm run lint` runs bare `eslint` (flat config). `next build` does not lint. Autofix with `npm run lint -- --fix`.
+- No typecheck script: use `npx tsc --noEmit`.
+- No test runner. The intended harness is the empty `scripts/test-scoring.ts`, run via `npx tsx scripts/test-scoring.ts`.
 
-Run `next dev`/`next build` before `tsc --noEmit` on a fresh clone: `app/layout.tsx` uses the generated `LayoutProps<"/">` type from `.next/types`, which does not exist until Next generates it.
+## Styling
 
-## Layout and branch state (read before editing)
+- Tailwind CSS v4, CSS-first: there is no `tailwind.config.*`.
+- Theme tokens (`brand-*`, `accent-*`, `ink-*`, `canvas`) and component classes (`.card`, `.card-bold`, `.btn-primary`, `.input`, `.label`, `.chip`, `.eyebrow`, `.ai-card`, …) are defined in `app/globals.css`. Reuse them instead of hard-coding colors or adding a config file.
+- Turbopack CSS loading is wired in `next.config.ts` via `@tailwindcss/turbopack`.
 
-- This repo is mid-refactor between two App Router locations. Current feature branches have a live root `app/` plus `src/app/api/screen/route.ts`. Next.js silently ignores `src/app` whenever a root `app/` exists, so the served route is `app/api/screen/route.ts`; the `src/app` file re-exports the same handler for the future `src/app` merge. `origin/main` already moved the app to `src/app/`; do not casually merge or forward-port that refactor.
-- `src/lib/*`, `src/data/*`, `src/types/*`, `src/app/api/*`, `src/components/`, `scripts/`, and `samples/` are the team's module map (extract → anonymize → score via Gemini; `scoring.mock.ts` for offline runs; `scripts/test-scoring.ts` harness). Fill files in place; don't delete or restructure the placeholder tree.
-- Branch ownership is parallel: `feat/ai-scoring` (current), `feat/backend-pipeline`, `feat/frontend-dashboard`, `feat/develop`, `main`. Avoid broad renames or moves of shared files; they cause cross-branch conflicts.
-- Path alias `@/*` maps to repo root (`"./*"`), not `src/`. Use `@/src/lib/...`; `@/lib/...` resolves to a nonexistent root `lib/`.
+## Next 16 patterns to match
 
-## Toolchain quirks
-
-- Tailwind v4 has no `tailwind.config.*`; theme is CSS-first in `app/globals.css` (`@import "tailwindcss"` + `@theme`). CSS is processed by `@tailwindcss/turbopack` via `turbopack.rules` in `next.config.ts`.
-- `next.config.ts` enables Next 16 flags `cacheComponents`, `partialPrefetching`, and `experimental.agentFeedback`. The latter rewrites the `nextjs-agent-rules` block above — treat that block as generated and don't hand-edit inside its markers.
-- Document parsing uses `pdf-parse` and `mammoth`; LLM access uses `@google/genai` (Gemini). `.env*` is gitignored except the empty `.env.example` — add required keys there, never commit secrets.
-- History uses Conventional Commits (`chore:`, `refactor:`). No CI, pre-commit hooks, formatter, or test runner is configured.
+- Dynamic route `params` is a `Promise`; await it (see `app/jobs/[id]/page.tsx`).
+- `useSearchParams()` must sit under `<Suspense>` (see `app/page.tsx`, `app/login/page.tsx`).
+- `next.config.ts` enables `cacheComponents`, `partialPrefetching`, and `experimental.agentFeedback`.
+- `next dev` recreates the `nextjs-agent-rules` block above; commit it instead of deleting it.
