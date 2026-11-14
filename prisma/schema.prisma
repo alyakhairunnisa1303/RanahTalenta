@@ -1,0 +1,114 @@
+// Prisma schema untuk HireMatch AI.
+// Skema database sudah ada (MySQL 8). Jangan buat migrasi dari schema ini.
+// Nama model/field dirapikan ke PascalCase/camelCase, nama asli dijaga lewat @@map/@map.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int           @id @default(autoincrement()) @db.UnsignedInt
+  name         String        @db.VarChar(150)
+  email        String        @unique(map: "uq_users_email") @db.VarChar(190)
+  password     String        @db.VarChar(255)
+  role         UserRole
+  companyName  String?       @map("company_name") @db.VarChar(150)
+  legalNumber  String?       @map("legal_number") @db.VarChar(50)
+  phone        String?       @db.VarChar(30)
+  portfolioUrl String?       @map("portfolio_url") @db.VarChar(255)
+  isVerified   Boolean       @default(false) @map("is_verified")
+  verifyToken  String?       @map("verify_token") @db.VarChar(100)
+  cvPath       String?       @map("cv_path") @db.VarChar(255)
+  cvText       String?       @map("cv_text") @db.LongText
+  createdAt    DateTime      @default(now()) @map("created_at") @db.DateTime(0)
+  applications Application[]
+  jobMatches   JobMatch[]
+  jobs         Job[]
+
+  @@index([role], map: "idx_users_role")
+  @@map("users")
+}
+
+model Job {
+  id           Int           @id @default(autoincrement()) @db.UnsignedInt
+  hrdId        Int           @map("hrd_id") @db.UnsignedInt
+  title        String        @db.VarChar(200)
+  description  String        @db.Text
+  requirements String        @db.Text
+  location     String        @db.VarChar(150)
+  salaryRange  String?       @map("salary_range") @db.VarChar(100)
+  status       JobStatus     @default(open)
+  createdAt    DateTime      @default(now()) @map("created_at") @db.DateTime(0)
+  applications Application[]
+  jobMatches   JobMatch[]
+  hrd          User          @relation(fields: [hrdId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_jobs_hrd")
+
+  @@index([hrdId], map: "idx_jobs_hrd")
+  @@index([status], map: "idx_jobs_status")
+  @@map("jobs")
+}
+
+/// Tabel ini memiliki CHECK constraint chk_match_score di MySQL (0-100) yang tidak
+/// direpresentasikan Prisma. Validasi rentang tetap dilakukan di backend.
+model JobMatch {
+  id                 Int          @id @default(autoincrement()) @db.UnsignedInt
+  candidateId        Int          @map("candidate_id") @db.UnsignedInt
+  jobId              Int          @map("job_id") @db.UnsignedInt
+  matchScore         Int          @map("match_score") @db.UnsignedTinyInt
+  candidateFeedback  String       @map("candidate_feedback") @db.Text
+  hrStrengths        Json         @map("hr_strengths")
+  hrGaps             Json         @map("hr_gaps")
+  interviewQuestions Json         @map("interview_questions")
+  createdAt          DateTime     @default(now()) @map("created_at") @db.DateTime(0)
+  application        Application?
+  candidate          User         @relation(fields: [candidateId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_match_candidate")
+  job                Job          @relation(fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_match_job")
+
+  @@unique([candidateId, jobId], map: "uq_match_candidate_job")
+  @@index([jobId, matchScore], map: "idx_match_job_score")
+  @@map("job_matches")
+}
+
+model Application {
+  id          Int               @id @default(autoincrement()) @db.UnsignedInt
+  jobMatchId  Int               @unique(map: "uq_app_match") @map("job_match_id") @db.UnsignedInt
+  candidateId Int               @map("candidate_id") @db.UnsignedInt
+  jobId       Int               @map("job_id") @db.UnsignedInt
+  status      ApplicationStatus @default(pending)
+  appliedAt   DateTime          @default(now()) @map("applied_at") @db.DateTime(0)
+  candidate   User              @relation(fields: [candidateId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_app_candidate")
+  job         Job               @relation(fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_app_job")
+  jobMatch    JobMatch          @relation(fields: [jobMatchId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_app_match")
+
+  @@unique([candidateId, jobId], map: "uq_app_candidate_job")
+  @@index([jobId, status], map: "idx_app_job_status")
+  @@map("applications")
+}
+
+enum UserRole {
+  candidate
+  hrd
+
+  @@map("users_role")
+}
+
+enum JobStatus {
+  open
+  closed
+  flagged
+
+  @@map("jobs_status")
+}
+
+enum ApplicationStatus {
+  pending
+  shortlisted
+  rejected
+
+  @@map("applications_status")
+}
