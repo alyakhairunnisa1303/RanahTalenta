@@ -15,6 +15,13 @@ import {
 } from "@/src/components/AiUi";
 import { splitLines } from "@/src/lib/format";
 import { notifyDataChanged } from "@/src/lib/client-events";
+import {
+  localDateTimeMinimum,
+  saveInterviewSchedule,
+  validateInterviewSchedule,
+  type InterviewScheduleInput,
+  type InterviewScheduleRecord,
+} from "@/src/lib/interview-scheduling";
 import type {
   ApplicantRow,
   ApplicationStatus,
@@ -34,6 +41,15 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
   const [screeningProgress, setScreeningProgress] = useState<{ done: number; total: number } | null>(null);
   const [applicationDocument, setApplicationDocument] = useState<ApplicationDocumentRecord | null>(null);
   const [documentResolvedFor, setDocumentResolvedFor] = useState<number | null>(null);
+  const [interviewSchedules, setInterviewSchedules] = useState<InterviewScheduleRecord[]>([]);
+  const [interviewsLoading, setInterviewsLoading] = useState(true);
+  const [interviewsError, setInterviewsError] = useState("");
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleMeetingUrl, setScheduleMeetingUrl] = useState("");
+  const [scheduleNotes, setScheduleNotes] = useState("");
+  const [scheduleError, setScheduleError] = useState("");
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [minScheduleDate, setMinScheduleDate] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -95,6 +111,35 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
     return () => { cancelled = true; };
   }, [job]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setInterviewsLoading(true);
+    setInterviewsError("");
+    fetch("/api/hrd/interviews", { cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json() as { interviews?: InterviewScheduleRecord[]; error?: string };
+        if (!response.ok) throw new Error(data.error ?? "Jadwal wawancara gagal dimuat.");
+        return data.interviews ?? [];
+      })
+      .then((items) => { if (!cancelled) setInterviewSchedules(items); })
+      .catch((error: unknown) => {
+        if (!cancelled) setInterviewsError(error instanceof Error ? error.message : "Jadwal wawancara gagal dimuat.");
+      })
+      .finally(() => { if (!cancelled) setInterviewsLoading(false); });
+    return () => { cancelled = true; };
+  }, [jobId]);
+
+  useEffect(() => {
+    setScheduleDate("");
+    setScheduleMeetingUrl("");
+    setScheduleNotes("");
+    setScheduleError("");
+  }, [selectedId]);
+
+  useEffect(() => {
+    setMinScheduleDate(localDateTimeMinimum());
+  }, []);
+
   if (!job) {
     if (!jobLoaded) return <div className="mx-auto max-w-3xl px-4 py-16 text-center text-slate-500">Memuat lowongan...</div>;
     return (
@@ -122,6 +167,7 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
     return b.application.applied_at.localeCompare(a.application.applied_at);
   });
   const selected = rows.find((r) => r.application.id === selectedId);
+  const selectedInterview = interviewSchedules.find((item) => item.application_id === selectedId);
 
   // Kandidat yang direkomendasikan (Highly Recommended >= 80%)
   const recommendedCandidates = sorted.filter((r) => isScreened(r) && r.match.match_score >= 80);
@@ -259,6 +305,47 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
         `Sukses mengundang ${target.candidate.name}! Informasi detail pelamar dan kontak resmi kini otomatis terbuka.`
       );
       setTimeout(() => setToast(null), 5000);
+    }
+  }
+
+  async function scheduleInterview() {
+    if (!selected || savingSchedule) return;
+    const applicationId = selected.application.id;
+    const input: InterviewScheduleInput = {
+      application_id: applicationId,
+      date_time: scheduleDate,
+      meeting_url: scheduleMeetingUrl.trim(),
+      notes: scheduleNotes,
+    };
+    const validationError = validateInterviewSchedule(input);
+    if (validationError) {
+      setScheduleError(validationError);
+      return;
+    }
+
+    setSavingSchedule(true);
+    setScheduleError("");
+    try {
+      if (!isShortlisted(selected)) {
+        const invited = await setStatus(applicationId, "shortlisted");
+        if (!invited) {
+          setScheduleError("Undangan wawancara gagal dibuat. Coba lagi.");
+          return;
+        }
+      }
+
+      const interview = await saveInterviewSchedule(input);
+      setInterviewSchedules((current) => [
+        ...current.filter((item) => item.application_id !== applicationId),
+        interview,
+      ]);
+      notifyDataChanged();
+      setToast("Jadwal wawancara berhasil dibuat.");
+      setTimeout(() => setToast(null), 5000);
+    } catch (error) {
+      setScheduleError(error instanceof Error ? error.message : "Jadwal wawancara gagal disimpan.");
+    } finally {
+      setSavingSchedule(false);
     }
   }
 
@@ -421,6 +508,9 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
                 const state = screeningStatus(r);
                 const sm = screened ? scoreMeta(r.match.match_score) : { accent: "border-slate-200 bg-white" };
                 const shortlisted = isShortlisted(r);
+                const hasScheduledInterview = interviewSchedules.some(
+                  (interview) => interview.application_id === r.application.id && interview.status === "scheduled",
+                );
 
                 return (
                   <div
@@ -446,6 +536,11 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
                             <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
                               <Icon name="eyeOff" className="h-3 w-3 text-slate-400" />
                               Blind Aktif (Belum Diundang)
+                            </span>
+                          )}
+                          {hasScheduledInterview && (
+                            <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-700 ring-1 ring-inset ring-blue-200">
+                              Wawancara Terjadwal
                             </span>
                           )}
                         </div>
@@ -725,6 +820,98 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
                       ? selected.application.screening_error || "Screening gagal. Jalankan ulang screening dari panel lowongan."
                       : "HRD belum memulai screening untuk CV ini. Mulai screening dari panel di halaman lowongan."}
               </AiInsight>
+
+              <section className="rounded-xl border border-brand-200 bg-brand-50/60 p-4">
+                <h3 className="text-sm font-bold text-ink-900">Jadwalkan Wawancara</h3>
+                {interviewsLoading ? (
+                  <p className="mt-2 text-xs text-slate-500">Memuat status jadwal wawancara...</p>
+                ) : interviewsError ? (
+                  <div className="mt-2 space-y-2">
+                    <p role="alert" className="text-xs text-rose-700">{interviewsError}</p>
+                    <Link href="/hrd/interviews" className="text-xs font-semibold text-brand-700 underline">
+                      Lihat di Jadwal Interview
+                    </Link>
+                  </div>
+                ) : selected.application.status === "rejected" ? (
+                  <p className="mt-2 text-xs text-slate-600">Pelamar yang ditolak tidak dapat dijadwalkan untuk wawancara.</p>
+                ) : !isScreened(selected) ? (
+                  <p className="mt-2 text-xs text-slate-600">Selesaikan screening AI sebelum mengundang dan menjadwalkan wawancara.</p>
+                ) : selectedInterview ? (
+                  <div className="mt-3 space-y-3 rounded-lg border border-white bg-white p-3.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-slate-500">Status</span>
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${selectedInterview.status === "scheduled" ? "bg-emerald-50 text-emerald-700" : selectedInterview.status === "completed" ? "bg-slate-100 text-slate-600" : "bg-rose-50 text-rose-700"}`}>
+                        {selectedInterview.status === "scheduled" ? "Terjadwal" : selectedInterview.status === "completed" ? "Selesai" : "Dibatalkan"}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-ink-900">
+                        {new Date(selectedInterview.scheduled_at).toLocaleDateString("id-ID", { dateStyle: "full" })}
+                      </p>
+                      <p className="text-sm text-slate-600">
+                        {new Date(selectedInterview.scheduled_at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}
+                      </p>
+                    </div>
+                    <div className="break-words text-xs text-slate-600">
+                      {selectedInterview.meeting_url ? (
+                        <a href={selectedInterview.meeting_url} target="_blank" rel="noreferrer" className="font-semibold text-brand-700 underline">
+                          {selectedInterview.meeting_url}
+                        </a>
+                      ) : "Tautan meeting tidak dicantumkan."}
+                    </div>
+                    {selectedInterview.notes && <p className="whitespace-pre-wrap break-words text-xs text-slate-600">{selectedInterview.notes}</p>}
+                    <Link href="/hrd/interviews" className="inline-flex text-xs font-semibold text-brand-700 underline">
+                      Lihat di Jadwal Interview
+                    </Link>
+                  </div>
+                ) : (
+                  <form
+                    className="mt-3 space-y-3"
+                    onSubmit={(event) => { event.preventDefault(); void scheduleInterview(); }}
+                  >
+                    <label className="label block">
+                      Tanggal dan waktu
+                      <input
+                        className="input mt-1 w-full"
+                        type="datetime-local"
+                        value={scheduleDate}
+                        min={minScheduleDate}
+                        required
+                        onChange={(event) => setScheduleDate(event.target.value)}
+                      />
+                    </label>
+                    <label className="label block">
+                      Tautan meeting (opsional)
+                      <input
+                        className="input mt-1 w-full"
+                        type="url"
+                        placeholder="https://..."
+                        value={scheduleMeetingUrl}
+                        maxLength={2048}
+                        onChange={(event) => setScheduleMeetingUrl(event.target.value)}
+                      />
+                    </label>
+                    <label className="label block">
+                      Catatan
+                      <textarea
+                        className="input mt-1 min-h-20 w-full"
+                        placeholder="Agenda atau instruksi untuk kandidat"
+                        value={scheduleNotes}
+                        maxLength={4000}
+                        onChange={(event) => setScheduleNotes(event.target.value)}
+                      />
+                    </label>
+                    {scheduleError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">{scheduleError}</p>}
+                    <button
+                      type="submit"
+                      disabled={savingSchedule}
+                      className="btn-primary inline-flex w-full items-center justify-center disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {savingSchedule ? "Menyimpan jadwal..." : isShortlisted(selected) ? "Jadwalkan Wawancara" : "Jadwalkan & Undang Wawancara"}
+                    </button>
+                  </form>
+                )}
+              </section>
 
               {isScreened(selected) && selected.match.ai_criteria_scores?.skill_score !== undefined && selected.match.ai_criteria_scores.experience_score !== undefined && (
                 <section className="rounded-xl border border-violet-200 bg-violet-50/70 p-4">
