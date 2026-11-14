@@ -1,7 +1,6 @@
 import { containsCvSignals, redactPii } from "./anonymize";
 import { hashInput, type GenerationMeta } from "./audit";
 import { TtlCache } from "./cache";
-import { env } from "./env";
 import { aiUnavailable, AppError } from "./errors";
 import {
   generateJsonResult,
@@ -356,6 +355,11 @@ export const calculateSemanticMatch = (
 ): Promise<SemanticMatchResult> =>
   hireMatchAIService.calculateSemanticMatch(cleanCvText, jobDescription, options);
 
+function isBackendMockMode(): boolean {
+  const flag = process.env.USE_MOCK?.trim().toLowerCase();
+  return flag !== "false";
+}
+
 const NEUTRAL_COMPANY = "PT Perusahaan";
 const NEUTRAL_EMAIL = "hrd@perusahaan.co.id";
 
@@ -388,7 +392,7 @@ function toBackendScamResult(
 
 async function checkJobScamText(text: string): Promise<JobScamCheckResult> {
   try {
-    if (env.USE_MOCK) {
+    if (isBackendMockMode()) {
       return mockScoring.checkJobScam(text);
     }
 
@@ -410,7 +414,7 @@ export async function validateCv(
   text: string,
 ): Promise<BackendCvValidationResult> {
   try {
-    if (env.USE_MOCK) {
+    if (isBackendMockMode()) {
       return mockScoring.validateCv(text);
     }
 
@@ -470,7 +474,7 @@ export async function scoreCandidate(
   mustHave: string[],
 ): Promise<ScoreOutput> {
   try {
-    if (env.USE_MOCK) {
+    if (isBackendMockMode()) {
       return mockScoring.scoreCandidate(jd, cvAnon, mustHave);
     }
 
