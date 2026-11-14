@@ -142,7 +142,7 @@ export async function getJobDetail(jobId: number) {
     if (
       !session ||
       session.role !== "hrd" ||
-      session.userId !== job.hrdId
+      session.sub !== job.hrdId
     ) {
       throw notFound("Lowongan tidak ditemukan.");
     }

@@ -1,103 +1,115 @@
-import { compare, hash } from "bcryptjs";
-import { jwtVerify, SignJWT } from "jose";
+import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
-import { env } from "./env";
-import { forbidden, unauthorized } from "./errors";
-import type { Role, SessionPayload } from "./types";
+import type { User, UserRole } from "../types/hirematch";
 
-export const SESSION_COOKIE = "hirematch_session";
-const BCRYPT_ROUNDS = 12;
-const secret = new TextEncoder().encode(env.AUTH_SECRET);
+const COOKIE_NAME = "hirematch_session";
+const SESSION_SECONDS = 60 * 60 * 24 * 7;
 
-export async function hashPassword(password: string): Promise<string> {
-  return hash(password, BCRYPT_ROUNDS);
+export type SessionUser = Pick<
+  User,
+  | "id"
+  | "name"
+  | "email"
+  | "role"
+  | "company_name"
+  | "industry"
+  | "legal_number"
+  | "phone"
+  | "portfolio_url"
+  | "is_verified"
+>;
+
+interface SessionPayload {
+  sub: number;
+  role: UserRole;
+  exp: number;
 }
 
-export async function verifyPassword(
-  password: string,
-  passwordHash: string,
-): Promise<boolean> {
-  return compare(password, passwordHash);
-}
-
-export async function issueSessionToken(
-  payload: SessionPayload,
-): Promise<string> {
-  return new SignJWT({ role: payload.role })
-    .setProtectedHeader({ alg: "HS256", typ: "JWT" })
-    .setSubject(String(payload.userId))
-    .setIssuedAt()
-    .setExpirationTime(`${env.SESSION_TTL_DAYS}d`)
-    .sign(secret);
-}
-
-export async function verifySessionToken(
-  token: string,
-): Promise<SessionPayload> {
-  const { payload } = await jwtVerify(token, secret, {
-    algorithms: ["HS256"],
-  });
-
-  const userId = Number(payload.sub);
-  const role = payload.role;
-
-  if (
-    !Number.isInteger(userId) ||
-    userId <= 0 ||
-    (role !== "candidate" && role !== "hrd")
-  ) {
-    throw new Error("Token sesi tidak valid.");
+function sessionSecret(): string {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret || Buffer.byteLength(secret) < 32) {
+    throw new Error("AUTH_SECRET wajib diisi dengan minimal 32 karakter acak.");
   }
-
-  return { userId, role };
+  return secret;
 }
 
-// Cookie sesi: httpOnly, sameSite=lax, secure hanya di production.
-export async function setSession(payload: SessionPayload): Promise<void> {
-  const token = await issueSessionToken(payload);
-  const store = await cookies();
-
-  store.set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: env.SESSION_TTL_DAYS * 24 * 60 * 60,
-  });
+export function ensureAuthSecretConfigured(): void {
+  sessionSecret();
 }
 
-export async function clearSession(): Promise<void> {
-  const store = await cookies();
-  store.delete(SESSION_COOKIE);
+function sign(value: string): string {
+  return createHmac("sha256", sessionSecret()).update(value).digest("base64url");
+}
+
+export function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString("hex");
+  const hash = scryptSync(password, salt, 64).toString("hex");
+  return `scrypt$${salt}$${hash}`;
+}
+
+export function verifyPassword(password: string, stored: string): boolean {
+  const [algorithm, salt, expectedHex] = stored.split("$");
+  if (algorithm !== "scrypt" || !salt || !expectedHex) return false;
+  const actual = scryptSync(password, salt, 64);
+  const expected = Buffer.from(expectedHex, "hex");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+export function createSessionToken(user: Pick<User, "id" | "role">): string {
+  const payload: SessionPayload = {
+    sub: user.id,
+    role: user.role,
+    exp: Math.floor(Date.now() / 1000) + SESSION_SECONDS,
+  };
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  return `${encoded}.${sign(encoded)}`;
+}
+
+function readSessionToken(token: string): SessionPayload | null {
+  const [encoded, signature] = token.split(".");
+  if (!encoded || !signature) return null;
+  try {
+    const actual = Buffer.from(signature, "base64url");
+    const expected = Buffer.from(sign(encoded), "base64url");
+    if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
+    const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as SessionPayload;
+    if (!Number.isSafeInteger(payload.sub) || payload.sub < 1 || payload.exp <= Date.now() / 1000) return null;
+    if (payload.role !== "candidate" && payload.role !== "hrd") return null;
+    return payload;
+  } catch {
+    return null;
+  }
 }
 
 export async function getSession(): Promise<SessionPayload | null> {
-  const store = await cookies();
-  const token = store.get(SESSION_COOKIE)?.value;
-  if (!token) {
-    return null;
-  }
-
-  try {
-    return await verifySessionToken(token);
-  } catch {
-    // Token rusak/kedaluwarsa diperlakukan sebagai belum login.
-    return null;
-  }
+  const token = (await cookies()).get(COOKIE_NAME)?.value;
+  return token ? readSessionToken(token) : null;
 }
 
-export async function requireSession(): Promise<SessionPayload> {
+export async function getCurrentUser(): Promise<SessionUser | null> {
   const session = await getSession();
-  if (!session) {
-    throw unauthorized();
-  }
-  return session;
+  if (!session) return null;
+  const { query } = await import("./db");
+  const result = await query<SessionUser>(
+    `SELECT id, name, email, role, company_name, industry, legal_number, phone, portfolio_url, is_verified
+     FROM users WHERE id = $1`,
+    [session.sub],
+  );
+  const user = result.rows[0];
+  return user && user.role === session.role ? user : null;
 }
 
-export async function requireRole(...roles: Role[]): Promise<SessionPayload> {
-  const session = await requireSession();
-  if (!roles.includes(session.role)) {
-    throw forbidden("Role akun Anda tidak diizinkan untuk aksi ini.");
-  }
-  return session;
+export function attachSessionCookie(response: Response, user: Pick<User, "id" | "role">): Response {
+  const token = createSessionToken(user);
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  response.headers.append(
+    "Set-Cookie",
+    `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_SECONDS}${secure}`,
+  );
+  return response;
+}
+
+export function clearSessionCookie(response: Response): Response {
+  response.headers.append("Set-Cookie", `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+  return response;
 }

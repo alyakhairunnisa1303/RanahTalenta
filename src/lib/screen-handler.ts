@@ -68,7 +68,7 @@ const jobInputSchema = z.object({
 
 const cvTargetFields = {
   jobDescription: z.string().trim().min(20).max(20_000).optional(),
-  jobs: z.array(jobInputSchema).min(1).max(200).optional(),
+  jobs: z.array(jobInputSchema).max(200).optional(),
   topN: z.number().int().min(1).max(20).default(5),
   jobTitle: z.string().trim().max(200).optional(),
   companyName: z.string().trim().max(200).optional(),
@@ -82,10 +82,6 @@ type CvTarget = {
   deepScan?: boolean;
 };
 
-function hasJobTarget(data: CvTarget): boolean {
-  return Boolean(data.jobDescription || (data.jobs && data.jobs.length > 0));
-}
-
 const companyRequestSchema = z.object({
   action: z.literal("company"),
   ...companyFields,
@@ -96,20 +92,13 @@ const jobRequestSchema = z.object({
   ...jobFields,
 });
 
-const cvBaseSchema = z.object(cvTargetFields).refine(hasJobTarget, {
-  message: "jobDescription atau jobs wajib diisi.",
-  path: ["jobDescription"],
-});
+const cvBaseSchema = z.object(cvTargetFields);
 
 const cvJsonRequestSchema = z
   .object({
     action: z.literal("cv"),
     cvText: z.string().min(40).max(30_000),
     ...cvTargetFields,
-  })
-  .refine(hasJobTarget, {
-    message: "jobDescription atau jobs wajib diisi.",
-    path: ["jobDescription"],
   });
 
 const MAX_SHORTLIST_PAIRS = 2_000;
@@ -388,21 +377,17 @@ async function runShortlist(
 async function runCvScreening(
   input: CvScreeningInput,
   requestId: string,
+  onProgress?: (step: number) => Promise<void>,
 ): Promise<Response> {
-  if (!input.jobs?.length && !input.jobDescription) {
-    return jsonResponse(
-      { error: "jobDescription atau jobs wajib diisi." },
-      400,
-    );
-  }
-
   const generations: GenerationMeta[] = [];
   const onGeneration = (meta: GenerationMeta) => generations.push(meta);
 
+  await onProgress?.(1);
   const validation = await validateAndRedactCV(input.cvText, {
     onGeneration,
     deepScan: input.deepScan,
   });
+  await onProgress?.(2);
 
   const auditBase = {
     action: "cv",
@@ -422,6 +407,18 @@ async function runCvScreening(
       validation,
       audit: createAuditMeta(
         { ...auditBase, cvText: "", reject_reason: validation.reject_reason },
+        generations,
+        requestId,
+      ),
+    });
+  }
+
+  if (!input.jobs?.length && !input.jobDescription) {
+    return jsonResponse({
+      status: "validated",
+      validation,
+      audit: createAuditMeta(
+        { ...auditBase, cvText: validation.redacted_cv },
         generations,
         requestId,
       ),
@@ -451,6 +448,7 @@ async function runCvScreening(
     });
   }
 
+  await onProgress?.(3);
   const match: SemanticMatchResult = await calculateSemanticMatch(
     validation.redacted_cv,
     input.jobDescription!,
@@ -460,6 +458,7 @@ async function runCvScreening(
       deepScan: input.deepScan,
     },
   );
+  await onProgress?.(4);
 
   return jsonResponse({
     status: "scored",
@@ -674,6 +673,7 @@ async function handleMultipart(
 async function handleJson(
   request: Request,
   requestId: string,
+  onProgress?: (step: number) => Promise<void>,
 ): Promise<Response> {
   let body: unknown;
 
@@ -722,6 +722,7 @@ async function handleJson(
         cvText: parsed.data.cvText,
       },
       requestId,
+      onProgress,
     );
   }
 
@@ -749,7 +750,10 @@ async function handleJson(
   );
 }
 
-export async function handleScreenRequest(request: Request): Promise<Response> {
+export async function handleScreenRequest(
+  request: Request,
+  onProgress?: (step: number) => Promise<void>,
+): Promise<Response> {
   const requestId = randomUUID();
 
   if (!isAuthorized(request)) {
@@ -784,7 +788,7 @@ export async function handleScreenRequest(request: Request): Promise<Response> {
     if (contentType.includes("multipart/form-data")) {
       response = await handleMultipart(request, requestId);
     } else {
-      response = await handleJson(request, requestId);
+      response = await handleJson(request, requestId, onProgress);
     }
 
     return withRequestId(response, requestId);
