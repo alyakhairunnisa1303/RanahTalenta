@@ -10,10 +10,16 @@ import {
   getEmbeddingCacheSize,
 } from "../src/lib/embedding";
 import { rankAndScoreJobs, rankJobsForCv } from "../src/lib/matchmaking";
+import { shortlistTargetForOpenings } from "../src/lib/policy";
 import { sanitizeUntrustedText } from "../src/lib/prompts";
 import { mapWithConcurrency } from "../src/lib/queue";
+import {
+  checkRateLimit,
+  resetRateLimitStore,
+} from "../src/lib/security";
 import { handleScreenRequest } from "../src/lib/screen-handler";
 import {
+  buildShortlist,
   calculateSemanticMatch,
   checkCompanyScam,
   checkJobScam,
@@ -69,6 +75,19 @@ async function run(): Promise<void> {
   }
   console.log("Scam check (safe):", safeJob);
 
+  const negatedFee = await checkJobScam(
+    "Tokopedia",
+    "hrd@tokopedia.com",
+    "Backend Engineer",
+    "Tidak memungut biaya administrasi. Tiket dan akomodasi ditanggung perusahaan.",
+  );
+  assert.equal(
+    negatedFee.risk_level,
+    "Low",
+    "negated fees and covered travel costs are not payment requests",
+  );
+  console.log("Scam check (negated fee):", negatedFee);
+
   const scamJob = await checkJobScam(
     "PT Cepat Kaya",
     "hrd@gmail.com",
@@ -115,12 +134,25 @@ async function run(): Promise<void> {
     "WhatsApp redirect should be flagged",
   );
   assert.ok(waRedirect.reason.length > 0);
-  if (mock) {
-    assert.equal(waRedirect.risk_level, "High");
-  } else {
-    assert.notEqual(waRedirect.risk_level, "Low");
-  }
+  assert.equal(
+    waRedirect.risk_level,
+    "High",
+    "WhatsApp plus personal number is a high-risk contact pattern",
+  );
   console.log("Scam check (WA redirect):", waRedirect);
+
+  const benignWhatsApp = await checkJobScam(
+    "CV Maju Jaya",
+    "hrd@majujaya.co.id",
+    "Data Entry",
+    "Kandidat dapat menghubungi HRD via WhatsApp untuk konfirmasi jadwal.",
+  );
+  assert.equal(
+    benignWhatsApp.risk_level,
+    "Medium",
+    "plain WhatsApp mention is a review signal, not a high-risk block",
+  );
+  console.log("Scam check (benign WhatsApp):", benignWhatsApp);
 
   const verifiedCompany = await checkCompanyScam(
     "Tokopedia",
@@ -142,8 +174,19 @@ async function run(): Promise<void> {
   assert.equal(publicMailCompany.is_safe, false);
   console.log("Company check (public email):", publicMailCompany);
 
-  const bigCompanyPublicMail = await checkCompanyScam(
+  const smallCompanyPublicMail = await checkCompanyScam(
     "PT Cepat Kaya",
+    "hrd@gmail.com",
+  );
+  assert.equal(
+    smallCompanyPublicMail.risk_level,
+    "Medium",
+    "small PT with public email should not be treated as impersonation",
+  );
+  console.log("Company check (small PT + gmail):", smallCompanyPublicMail);
+
+  const bigCompanyPublicMail = await checkCompanyScam(
+    "Tokopedia",
     "hrd@gmail.com",
   );
   assert.equal(bigCompanyPublicMail.risk_level, "High");
@@ -160,6 +203,8 @@ async function run(): Promise<void> {
     is_safe: true,
     risk_level: "High",
     reason: "test",
+    signals: [],
+    confidence: 90,
   });
   assert.equal(normalizedHigh.is_safe, false);
 
@@ -167,6 +212,8 @@ async function run(): Promise<void> {
     is_safe: false,
     risk_level: "Low",
     reason: "test",
+    signals: [],
+    confidence: 40,
   });
   assert.equal(normalizedUnsafeLow.risk_level, "Medium");
   assert.equal(normalizedUnsafeLow.is_safe, false);
@@ -201,6 +248,12 @@ async function run(): Promise<void> {
   );
   assert.deepEqual(concurrencyResults, [2, 4, 6, 8, 10]);
   assert.ok(maxActiveTasks <= 2);
+
+  resetRateLimitStore();
+  assert.equal(checkRateLimit("test-key", 2).allowed, true);
+  assert.equal(checkRateLimit("test-key", 2).allowed, true);
+  assert.equal(checkRateLimit("test-key", 2).allowed, false);
+  resetRateLimitStore();
 
   const textExtraction = await extractTextFromBuffer(
     Buffer.from("Nama: Budi\nPengalaman: Backend Engineer\nSkill: PHP"),
@@ -320,6 +373,48 @@ async function run(): Promise<void> {
   assert.equal(routeCompanyBody.audit.mode, "deterministic");
   console.log("Screen route (company):", routeCompanyBody);
 
+  const previousToken = process.env.SCREEN_API_TOKEN;
+  process.env.SCREEN_API_TOKEN = "test-secret";
+  try {
+    resetRateLimitStore();
+    const unauthorizedResponse = await handleScreenRequest(
+      new Request("http://localhost/api/screen", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "company",
+          companyName: "Tokopedia",
+          hrdEmail: "hrd@tokopedia.com",
+        }),
+      }),
+    );
+    assert.equal(unauthorizedResponse.status, 401);
+    assert.ok(unauthorizedResponse.headers.get("x-request-id"));
+
+    const authorizedResponse = await handleScreenRequest(
+      new Request("http://localhost/api/screen", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer test-secret",
+        },
+        body: JSON.stringify({
+          action: "company",
+          companyName: "Tokopedia",
+          hrdEmail: "hrd@tokopedia.com",
+        }),
+      }),
+    );
+    assert.equal(authorizedResponse.status, 200);
+  } finally {
+    if (previousToken === undefined) {
+      delete process.env.SCREEN_API_TOKEN;
+    } else {
+      process.env.SCREEN_API_TOKEN = previousToken;
+    }
+    resetRateLimitStore();
+  }
+
   const rawCv = [
     "Nama: Budi Santoso",
     "Umur: 22 tahun",
@@ -403,6 +498,90 @@ async function run(): Promise<void> {
   assert.equal(multipartBody.status, "ranked");
   assert.equal(multipartBody.results[0]?.job.id, "backend");
   console.log("Screen route (multipart PDF):", multipartBody);
+
+  const capacityDefault = shortlistTargetForOpenings(3);
+  assert.deepEqual(capacityDefault, { openings: 3, buffer: 1, target: 4 });
+  assert.deepEqual(shortlistTargetForOpenings(5), {
+    openings: 5,
+    buffer: 1,
+    target: 6,
+  });
+  assert.deepEqual(shortlistTargetForOpenings(2, 0), {
+    openings: 2,
+    buffer: 0,
+    target: 2,
+  });
+
+  const shortlistJobs = [
+    {
+      id: "backend",
+      title: "Backend Engineer",
+      description: "Backend REST API MySQL PHP Laravel",
+      openings: 1,
+    },
+  ];
+  const shortlistCandidates = [
+    { id: "cand-1", cvText: rawCv },
+    {
+      id: "cand-2",
+      cvText:
+        "Nama: Siti\nPengalaman: Backend REST API MySQL PHP Laravel\nSkill: PHP, Git",
+    },
+    {
+      id: "cand-3",
+      cvText:
+        "Nama: Andi\nPengalaman: Backend REST API MySQL PHP Laravel\nSkill: PHP, MySQL",
+    },
+    {
+      id: "cand-4",
+      cvText: "Struk belanja: Indomie 2x, sabun 1x. Total Rp 15.000.",
+    },
+  ];
+
+  const shortlist = await buildShortlist(shortlistJobs, shortlistCandidates, {
+    topNPerCandidate: 1,
+  });
+  const backendShortlist = shortlist.jobs[0]!;
+  assert.equal(backendShortlist.openings, 1);
+  assert.equal(backendShortlist.buffer, 1);
+  assert.equal(backendShortlist.target, 2);
+  assert.equal(
+    backendShortlist.selected.length,
+    2,
+    "selected should include openings + buffer",
+  );
+  assert.equal(backendShortlist.waitlist.length, 1);
+  assert.equal(backendShortlist.shortfall, 0);
+  assert.equal(shortlist.rejected_candidates.length, 1);
+  assert.equal(shortlist.rejected_candidates[0]?.candidate_id, "cand-4");
+  console.log("Shortlist (capacity + buffer):", shortlist);
+
+  const routeShortlistResponse = await handleScreenRequest(
+    new Request("http://localhost/api/screen", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "shortlist",
+        jobs: shortlistJobs,
+        candidates: shortlistCandidates,
+        topNPerCandidate: 1,
+      }),
+    }),
+  );
+  assert.equal(routeShortlistResponse.status, 200);
+  const routeShortlistBody = (await routeShortlistResponse.json()) as {
+    status: string;
+    result: {
+      jobs: Array<{ target: number; selected: unknown[]; shortfall: number }>;
+      rejected_candidates: unknown[];
+    };
+  };
+  assert.equal(routeShortlistBody.status, "shortlisted");
+  assert.equal(routeShortlistBody.result.jobs[0]?.target, 2);
+  assert.equal(routeShortlistBody.result.jobs[0]?.selected.length, 2);
+  assert.equal(routeShortlistBody.result.jobs[0]?.shortfall, 0);
+  assert.equal(routeShortlistBody.result.rejected_candidates.length, 1);
+  console.log("Screen route (shortlist):", routeShortlistBody);
 
   const jobDescription =
     "Dicari Backend Engineer yang menguasai pengembangan web service dan manajemen basis data relasional.";

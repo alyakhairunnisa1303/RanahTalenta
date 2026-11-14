@@ -21,6 +21,7 @@ export const DISPOSABLE_MAIL_DOMAINS = [
   "guerrillamail.com",
   "10minutemail.com",
   "tempmail.com",
+  "tempmail.id",
   "throwawaymail.com",
   "yopmail.com",
   "sharklasers.com",
@@ -29,8 +30,12 @@ export const DISPOSABLE_MAIL_DOMAINS = [
   "dispostable.com",
 ];
 
-const BIG_COMPANY_PATTERN =
-  /\b(?:pt|tbk|persero|bank|group|grup|holding|corp|corporation|inc|ltd)\b/i;
+const KNOWN_BIG_COMPANY_PATTERNS = [
+  /\b(?:tokopedia|gojek|goto|traveloka|shopee|grab|bukalapak|blibli|tiket\.com|jne|j&t|pos indonesia)\b/i,
+  /\b(?:telkom|telkomsel|indosat|xl axiata|pertamina|unilever|nestle|danone|astra|sampoerna|kalbe|sinarmas|mayora|wings|indofood|garuda|citilink|lion air)\b/i,
+  /\b(?:bank\s+(?:central\s+asia|bca|mandiri|bni|bri|btn|permata|cimb|danamon|panin|mega))\b/i,
+  /\b(?:tbk|persero)\b/i,
+];
 
 const COMPANY_STOPWORDS = new Set([
   "pt",
@@ -48,9 +53,26 @@ const COMPANY_STOPWORDS = new Set([
   "the",
   "dan",
   "and",
+  "cv",
 ]);
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const PAYMENT_PATTERN =
+  /\b(?:wajib\s+(?:bayar|membayar|transfer|setor)|biaya\s+(?:pelatihan|administrasi|pendaftaran|awal|tiket|akomodasi|transport)|deposit|uang\s+(?:muka|jaminan|pendaftaran)|bayar\s+(?:biaya|deposit|pelatihan|administrasi|pendaftaran|tiket|akomodasi)|transfer\s+(?:biaya|deposit|uang|sejumlah|rp))\b/gi;
+
+const OTP_PATTERN =
+  /\b(?:otp|kode\s+(?:otp|verifikasi)|pin|password|kata\s+sandi)\b/i;
+
+const WHATSAPP_PATTERN = /\b(?:whatsapp|wa\.me|wa|telegram|t\.me)\b/i;
+
+const PERSONAL_PHONE_PATTERN = /(?:\+62|62|0)8\d{7,11}/;
+
+const HIGH_RISK_CONTACT_PATTERN =
+  /\b(?:otp|kode\s+verifikasi|kirim\s+(?:cv|berkas|dokumen)|nomor\s+pribadi|chat\s+pribadi|dm|inbox|rekening|tanpa\s+(?:interview|wawancara))\b/i;
+
+const NEGATION_PATTERN =
+  /\b(?:tidak|tanpa|bukan|gratis|free|bebas|no|not|never|tidak\s+ada|tidak\s+memungut|tidak\s+dipungut)\b/i;
 
 interface TrustSignal {
   label: string;
@@ -85,7 +107,9 @@ export function isDisposableEmailDomain(domain: string): boolean {
 }
 
 export function isBigCompanyName(companyName: string): boolean {
-  return BIG_COMPANY_PATTERN.test(companyName);
+  return KNOWN_BIG_COMPANY_PATTERNS.some((pattern) =>
+    pattern.test(companyName),
+  );
 }
 
 function domainBase(domain: string): string {
@@ -100,7 +124,7 @@ function companyTokens(companyName: string): string[] {
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
-    .filter((token) => token.length >= 4 && !COMPANY_STOPWORDS.has(token));
+    .filter((token) => token.length >= 3 && !COMPANY_STOPWORDS.has(token));
 }
 
 export function domainMatchesCompany(
@@ -115,10 +139,35 @@ export function domainMatchesCompany(
   );
 }
 
+function hasUnnegatedSignal(text: string, pattern: RegExp): boolean {
+  pattern.lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    const clause = text
+      .slice(Math.max(0, match.index - 60), match.index)
+      .split(/[.;\n]/)
+      .pop()
+      ?.trim();
+
+    if (!clause || !NEGATION_PATTERN.test(clause)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function riskFromSignals(signals: TrustSignal[]): RiskLevel {
   if (signals.some((signal) => signal.severity === "High")) return "High";
   if (signals.some((signal) => signal.severity === "Medium")) return "Medium";
   return "Low";
+}
+
+function confidenceForRisk(riskLevel: RiskLevel): number {
+  if (riskLevel === "High") return 90;
+  if (riskLevel === "Medium") return 75;
+  return 80;
 }
 
 function reasonFromSignals(signals: TrustSignal[], safeReason: string): string {
@@ -189,6 +238,8 @@ export function assessCompanyTrust(
       signals,
       "Domain email perusahaan valid dan tidak ada indikasi penipuan.",
     ),
+    signals: signals.map((signal) => signal.label),
+    confidence: confidenceForRisk(riskLevel),
   });
 }
 
@@ -201,13 +252,16 @@ export function assessJobScam(
   const signals = collectCompanySignals(companyName, hrdEmail);
   const text = `${companyName} ${jobTitle} ${jobDescription}`;
 
-  if (
-    /\b(?:bayar|membayar|pembayaran|deposit|transfer|biaya\s+(?:pelatihan|administrasi|pendaftaran|awal)|tiket|akomodasi)\b/i.test(
-      text,
-    )
-  ) {
+  if (hasUnnegatedSignal(text, PAYMENT_PATTERN)) {
     signals.push({
       label: "permintaan pembayaran di muka",
+      severity: "High",
+    });
+  }
+
+  if (OTP_PATTERN.test(text)) {
+    signals.push({
+      label: "meminta OTP/PIN/password",
       severity: "High",
     });
   }
@@ -232,15 +286,17 @@ export function assessJobScam(
     });
   }
 
-  if (
-    /\b(?:whatsapp|wa\.me|telegram|t\.me)\b/i.test(text) ||
-    /\b(?:hubungi|chat|kirim|kontak)\b[^.\n]{0,40}\b(?:wa|whatsapp|telegram)\b/i.test(
-      text,
-    )
-  ) {
+  if (WHATSAPP_PATTERN.test(text)) {
+    const hasHighRiskContact =
+      HIGH_RISK_CONTACT_PATTERN.test(text) ||
+      PERSONAL_PHONE_PATTERN.test(text) ||
+      hasUnnegatedSignal(text, PAYMENT_PATTERN);
+
     signals.push({
-      label: "mengarahkan komunikasi ke WhatsApp/Telegram pribadi",
-      severity: "High",
+      label: hasHighRiskContact
+        ? "komunikasi ke WhatsApp/Telegram pribadi dengan sinyal risiko tinggi"
+        : "komunikasi via WhatsApp/Telegram; verifikasi kanal resmi",
+      severity: hasHighRiskContact ? "High" : "Medium",
     });
   }
 
@@ -253,6 +309,8 @@ export function assessJobScam(
       signals,
       "Tidak ada indikasi penipuan yang jelas.",
     ),
+    signals: signals.map((signal) => signal.label),
+    confidence: confidenceForRisk(riskLevel),
   });
 }
 
@@ -272,11 +330,16 @@ export function mergeScamResults(
         .filter(Boolean),
     ),
   );
+  const signals = Array.from(
+    new Set([...(first.signals ?? []), ...(second.signals ?? [])]),
+  );
+  const confidence = Math.max(first.confidence ?? 60, second.confidence ?? 60);
 
   return normalizeScamResult({
     is_safe: riskLevel === "Low",
     risk_level: riskLevel,
     reason: reasons.join(" "),
+    signals,
+    confidence,
   });
 }
-

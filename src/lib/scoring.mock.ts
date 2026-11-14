@@ -227,6 +227,12 @@ export function mockCalculateSemanticMatch(
   return {
     match_score: score,
     match_category: category,
+    confidence:
+      relevantGroups.length === 0
+        ? 50
+        : Math.round(
+            60 + (matchedGroups.length / relevantGroups.length) * 30,
+          ),
     candidate_feedback: feedbackFor(category),
     hr_strengths: strengths,
     hr_gaps: gaps,
@@ -237,5 +243,9 @@ export function mockCalculateSemanticMatch(
         : "Bagaimana Anda menjaga kualitas kerja secara konsisten?",
       "Berikan contoh proyek nyata dan kontribusi spesifik Anda.",
     ],
+    matched_skills: matchedLabels,
+    missing_skills: missingLabels,
+    must_have_gaps: [],
+    evidence: [],
   };
 }

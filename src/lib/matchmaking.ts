@@ -1,5 +1,6 @@
 import { cosineSimilarity, embedTextsCached } from "./embedding";
 import { mapWithConcurrency } from "./queue";
+import type { JobRequirements } from "./prompts";
 import {
   calculateSemanticMatch,
   type ServiceOptions,
@@ -10,6 +11,7 @@ export interface JobInput {
   id: string;
   title: string;
   description: string;
+  requirements?: JobRequirements;
 }
 
 export interface RankedJob {
@@ -79,6 +81,11 @@ export async function rankAndScoreJobs(
     ...item,
     match: await calculateSemanticMatch(cvText, item.job.description, {
       onGeneration: options.onGeneration,
+      jobTitle: item.job.title,
+      requirements: item.job.requirements,
+      deepScan: options.deepScan,
+      signal: options.signal,
+      generate: options.generate,
     }),
   }));
 }

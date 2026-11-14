@@ -42,6 +42,7 @@ const embeddingCache = new TtlCache<string, number[]>({
 });
 
 let liveDisabledUntil = 0;
+let liveFetchInFlight: Promise<void> | null = null;
 
 function tokenizeForEmbedding(text: string): string[] {
   return text
@@ -95,48 +96,8 @@ function hasApiKey(): boolean {
   return Boolean(process.env.GEMINI_API_KEY?.trim());
 }
 
-export async function embedTextsCached(texts: string[]): Promise<number[][]> {
-  if (texts.length === 0) return [];
-
-  const useLive =
-    !isMockMode() && hasApiKey() && Date.now() >= liveDisabledUntil;
-
-  if (useLive) {
-    const liveKeys = texts.map(liveKey);
-    const missingIndexes: number[] = [];
-    const missingTexts: string[] = [];
-
-    liveKeys.forEach((key, index) => {
-      if (!embeddingCache.has(key)) {
-        missingIndexes.push(index);
-        missingTexts.push(texts[index] ?? "");
-      }
-    });
-
-    if (missingTexts.length > 0) {
-      try {
-        const fresh = await embedTexts(missingTexts);
-        fresh.forEach((vector, freshIndex) => {
-          const targetIndex = missingIndexes[freshIndex];
-          if (targetIndex === undefined) return;
-          embeddingCache.set(liveKeys[targetIndex]!, vector);
-        });
-      } catch (error) {
-        console.error(
-          "[embedding] Live embedding failed; falling back to local vectors",
-          error,
-        );
-        liveDisabledUntil = Date.now() + LIVE_DISABLE_MS;
-      }
-    }
-
-    const resolved = liveKeys.map((key) => embeddingCache.get(key));
-    if (resolved.every((vector) => vector !== undefined)) {
-      return resolved as number[][];
-    }
-  }
-
-  return texts.map((text) => {
+function resolveLocal(uniqueTexts: string[]): number[][] {
+  return uniqueTexts.map((text) => {
     const key = localKey(text);
     const cached = embeddingCache.get(key);
     if (cached) return cached;
@@ -145,6 +106,106 @@ export async function embedTextsCached(texts: string[]): Promise<number[][]> {
     embeddingCache.set(key, vector);
     return vector;
   });
+}
+
+async function resolveLive(
+  uniqueTexts: string[],
+): Promise<(number[] | undefined)[]> {
+  if (liveFetchInFlight) {
+    await liveFetchInFlight.catch(() => undefined);
+  }
+
+  if (Date.now() < liveDisabledUntil) {
+    return uniqueTexts.map(() => undefined);
+  }
+
+  const keys = uniqueTexts.map(liveKey);
+  const missingIndexes: number[] = [];
+
+  keys.forEach((key, index) => {
+    if (!embeddingCache.has(key)) missingIndexes.push(index);
+  });
+
+  if (missingIndexes.length === 0) {
+    return keys.map((key) => embeddingCache.get(key));
+  }
+
+  let release!: () => void;
+  const flight = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  liveFetchInFlight = flight;
+
+  try {
+    const missingTexts = missingIndexes.map((index) => uniqueTexts[index] ?? "");
+    const fresh = await embedTexts(missingTexts);
+
+    fresh.forEach((vector, freshIndex) => {
+      const targetIndex = missingIndexes[freshIndex];
+      if (targetIndex === undefined) return;
+      const key = keys[targetIndex];
+      if (key) embeddingCache.set(key, vector);
+    });
+  } catch (error) {
+    console.error(
+      "[embedding] Live embedding failed; falling back to local vectors",
+      error,
+    );
+    liveDisabledUntil = Date.now() + LIVE_DISABLE_MS;
+  } finally {
+    liveFetchInFlight = null;
+    release();
+  }
+
+  return keys.map((key) => embeddingCache.get(key));
+}
+
+export async function embedTextsCached(texts: string[]): Promise<number[][]> {
+  if (texts.length === 0) return [];
+
+  const uniqueTexts: string[] = [];
+  const uniqueIndexByText = new Map<string, number>();
+
+  for (const text of texts) {
+    if (uniqueIndexByText.has(text)) continue;
+    uniqueIndexByText.set(text, uniqueTexts.length);
+    uniqueTexts.push(text);
+  }
+
+  const useLive =
+    !isMockMode() && hasApiKey() && Date.now() >= liveDisabledUntil;
+
+  let uniqueVectors: number[][] | undefined;
+
+  if (useLive) {
+    const liveVectors = await resolveLive(uniqueTexts);
+    if (liveVectors.every((vector) => vector !== undefined)) {
+      uniqueVectors = liveVectors as number[][];
+    }
+  }
+
+  if (!uniqueVectors) {
+    uniqueVectors = resolveLocal(uniqueTexts);
+  }
+
+  return texts.map((text) => {
+    const uniqueIndex = uniqueIndexByText.get(text);
+    return uniqueVectors?.[uniqueIndex ?? -1] ?? [];
+  });
+}
+
+export async function warmJobEmbeddings(jobTexts: string[]): Promise<void> {
+  if (jobTexts.length === 0) return;
+
+  try {
+    await embedTextsCached(jobTexts);
+  } catch (error) {
+    console.error("[embedding] Failed to warm job embeddings", error);
+  }
+}
+
+export function isLiveEmbeddingEnabled(): boolean {
+  return !isMockMode() && hasApiKey() && Date.now() >= liveDisabledUntil;
 }
 
 export function cosineSimilarity(first: number[], second: number[]): number {
@@ -170,6 +231,7 @@ export function cosineSimilarity(first: number[], second: number[]): number {
 export function clearEmbeddingCache(): void {
   embeddingCache.clear();
   liveDisabledUntil = 0;
+  liveFetchInFlight = null;
 }
 
 export function getEmbeddingCacheSize(): number {

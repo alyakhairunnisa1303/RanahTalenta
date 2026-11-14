@@ -1,6 +1,11 @@
 import { containsCvSignals, redactPii } from "./anonymize";
-import type { GenerationMeta } from "./audit";
-import { generateJsonResult } from "./gemini";
+import { hashInput, type GenerationMeta } from "./audit";
+import { TtlCache } from "./cache";
+import {
+  generateJsonResult,
+  type GenerateJsonOptions,
+  type GenerationResult,
+} from "./gemini";
 import {
   normalizeScamResult,
   normalizeSemanticMatch,
@@ -10,8 +15,9 @@ import {
   buildCvRedactionPrompt,
   buildScamCheckPrompt,
   buildSemanticMatchPrompt,
+  type JobRequirements,
 } from "./prompts";
-import { isMockMode } from "./runtime";
+import { getGeminiModel, isMockMode } from "./runtime";
 import {
   mockCalculateSemanticMatch,
   mockValidateAndRedactCV,
@@ -30,14 +36,47 @@ import {
   type SemanticMatchResult,
 } from "../types/contract";
 
+export type GenerateJson = <T>(
+  options: GenerateJsonOptions<T>,
+) => Promise<GenerationResult<T>>;
+
 export interface ServiceOptions {
   onGeneration?: (meta: GenerationMeta) => void;
+  jobTitle?: string;
+  requirements?: JobRequirements;
+  deepScan?: boolean;
+  signal?: AbortSignal;
+  generate?: GenerateJson;
+}
+
+const semanticMatchCache = new TtlCache<string, SemanticMatchResult>({
+  ttlMs: 60 * 60 * 1000,
+  maxEntries: 5_000,
+});
+
+function semanticCacheKey(
+  cleanCvText: string,
+  jobDescription: string,
+  options: ServiceOptions,
+): string {
+  return `${getGeminiModel()}:${PROMPT_VERSION}:${hashInput({
+    cv: cleanCvText,
+    jobDescription,
+    jobTitle: options.jobTitle,
+    requirements: options.requirements,
+  })}`;
+}
+
+export function clearSemanticMatchCache(): void {
+  semanticMatchCache.clear();
 }
 
 const SCAM_FALLBACK: ScamCheckResult = {
   is_safe: true,
   risk_level: "Low",
   reason: "Fallback aman: analisis tidak tersedia.",
+  signals: [],
+  confidence: 50,
 };
 
 const CV_FALLBACK: CvValidationResult = {
@@ -51,6 +90,23 @@ function deterministicGeneration(model = "rules"): GenerationMeta {
     mode: "deterministic",
     model,
     promptVersion: PROMPT_VERSION,
+  };
+}
+
+function generationMetaFrom(
+  generated: GenerationResult<unknown>,
+): GenerationMeta {
+  return {
+    mode: generated.mode,
+    model: generated.model,
+    promptVersion: PROMPT_VERSION,
+    latencyMs: generated.latencyMs,
+    promptTokens: generated.usage?.promptTokens,
+    outputTokens: generated.usage?.outputTokens,
+    totalTokens: generated.usage?.totalTokens,
+    ...(generated.fallbackReason
+      ? { fallbackReason: generated.fallbackReason }
+      : {}),
   };
 }
 
@@ -92,7 +148,12 @@ export class HireMatchAIService {
       return deterministic;
     }
 
-    const generated = await generateJsonResult({
+    if (deterministic.risk_level === "Low" && !options.deepScan) {
+      options.onGeneration?.(deterministicGeneration());
+      return deterministic;
+    }
+
+    const generated = await (options.generate ?? generateJsonResult)({
       prompt: buildScamCheckPrompt(
         companyName,
         hrdEmail,
@@ -101,12 +162,9 @@ export class HireMatchAIService {
       ),
       schema: scamCheckResultSchema,
       fallback: SCAM_FALLBACK,
+      signal: options.signal,
     });
-    options.onGeneration?.({
-      mode: generated.mode,
-      model: generated.model,
-      promptVersion: PROMPT_VERSION,
-    });
+    options.onGeneration?.(generationMetaFrom(generated));
 
     if (generated.mode === "fallback") {
       return deterministic;
@@ -140,16 +198,23 @@ export class HireMatchAIService {
     }
 
     const locallyRedacted = redactPii(trimmed);
-    const generated = await generateJsonResult({
+
+    if (!options.deepScan && containsCvSignals(locallyRedacted)) {
+      options.onGeneration?.(deterministicGeneration("local-validator"));
+      return {
+        is_valid_cv: true,
+        redacted_cv: locallyRedacted,
+        reject_reason: null,
+      };
+    }
+
+    const generated = await (options.generate ?? generateJsonResult)({
       prompt: buildCvRedactionPrompt(locallyRedacted),
       schema: cvValidationResultSchema,
       fallback: CV_FALLBACK,
+      signal: options.signal,
     });
-    options.onGeneration?.({
-      mode: generated.mode,
-      model: generated.model,
-      promptVersion: PROMPT_VERSION,
-    });
+    options.onGeneration?.(generationMetaFrom(generated));
 
     if (generated.mode === "fallback") {
       if (!containsCvSignals(locallyRedacted)) {
@@ -197,21 +262,39 @@ export class HireMatchAIService {
       );
     }
 
+    const cacheKey = options.generate
+      ? null
+      : semanticCacheKey(cleanCvText, jobDescription, options);
+    const cached = cacheKey ? semanticMatchCache.get(cacheKey) : undefined;
+    if (cached) {
+      options.onGeneration?.({
+        mode: "deterministic",
+        model: "cache",
+        promptVersion: PROMPT_VERSION,
+      });
+      return cached;
+    }
+
     const localFallback = normalizeSemanticMatch(
       mockCalculateSemanticMatch(cleanCvText, jobDescription),
     );
-    const generated = await generateJsonResult({
-      prompt: buildSemanticMatchPrompt(cleanCvText, jobDescription),
+    const generated = await (options.generate ?? generateJsonResult)({
+      prompt: buildSemanticMatchPrompt(cleanCvText, jobDescription, {
+        jobTitle: options.jobTitle,
+        requirements: options.requirements,
+      }),
       schema: semanticMatchResultSchema,
       fallback: localFallback,
+      signal: options.signal,
     });
-    options.onGeneration?.({
-      mode: generated.mode,
-      model: generated.model,
-      promptVersion: PROMPT_VERSION,
-    });
+    options.onGeneration?.(generationMetaFrom(generated));
 
-    return normalizeSemanticMatch(generated.data);
+    const normalized = normalizeSemanticMatch(generated.data);
+    if (cacheKey && generated.mode === "gemini") {
+      semanticMatchCache.set(cacheKey, normalized);
+    }
+
+    return normalized;
   }
 }
 

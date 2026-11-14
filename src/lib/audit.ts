@@ -10,6 +10,11 @@ export interface GenerationMeta {
   mode: AiMode;
   model: string;
   promptVersion: string;
+  latencyMs?: number;
+  promptTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  fallbackReason?: string;
 }
 
 export type AuditMode = AiMode | "mixed";
@@ -20,6 +25,7 @@ export interface AuditMeta {
   promptVersion: string;
   scoredAt: string;
   inputHash: string;
+  requestId?: string;
   generations: GenerationMeta[];
 }
 
@@ -62,6 +68,7 @@ export function hashInput(value: unknown): string {
 export function createAuditMeta(
   input: unknown,
   generations: GenerationMeta[] = [],
+  requestId?: string,
 ): AuditMeta {
   const fallbackGeneration: GenerationMeta = {
     mode: currentAiMode(),
@@ -89,6 +96,7 @@ export function createAuditMeta(
     promptVersion: promptVersions.join(","),
     scoredAt: new Date().toISOString(),
     inputHash: hashInput(input),
+    ...(requestId ? { requestId } : {}),
     generations: effectiveGenerations,
   };
 }
