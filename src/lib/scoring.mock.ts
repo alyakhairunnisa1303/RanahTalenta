@@ -1,94 +1,14 @@
 import { containsCvSignals, redactPii } from "./anonymize";
+import { matchCategoryForScore } from "./policy";
+import { assessJobScam } from "./trust";
+
+export { isMockMode } from "./runtime";
 import type {
   CvValidationResult,
   MatchCategory,
-  RiskLevel,
   ScamCheckResult,
   SemanticMatchResult,
 } from "../types/contract";
-
-export function isMockMode(): boolean {
-  const flag = process.env.MOCK_AI?.trim().toLowerCase();
-  return flag === "1" || flag === "true" || flag === "yes";
-}
-
-const FREE_MAIL_DOMAINS = new Set([
-  "gmail.com",
-  "googlemail.com",
-  "yahoo.com",
-  "yahoo.co.id",
-  "ymail.com",
-  "hotmail.com",
-  "outlook.com",
-  "live.com",
-  "proton.me",
-  "protonmail.com",
-  "mail.com",
-]);
-
-const DISPOSABLE_DOMAINS = [
-  "mailinator.com",
-  "guerrillamail.com",
-  "10minutemail.com",
-  "tempmail.com",
-  "throwawaymail.com",
-  "yopmail.com",
-];
-
-const BIG_COMPANY_PATTERN =
-  /\b(?:pt|tbk|persero|bank|group|grup|holding|corp|corporation|inc|ltd)\b/i;
-
-const COMPANY_STOPWORDS = new Set([
-  "pt",
-  "tbk",
-  "persero",
-  "bank",
-  "group",
-  "grup",
-  "holding",
-  "corp",
-  "corporation",
-  "inc",
-  "ltd",
-  "indonesia",
-  "the",
-  "dan",
-  "and",
-]);
-
-function normalizeEmailDomain(email: string): string {
-  const trimmed = email.trim().toLowerCase();
-  const at = trimmed.lastIndexOf("@");
-  return at === -1 ? "" : trimmed.slice(at + 1);
-}
-
-function domainBase(domain: string): string {
-  return domain.replace(
-    /\.(?:co\.id|com|co|net|org|id|io|ai|dev|app|xyz|site|online)$/i,
-    "",
-  );
-}
-
-function companyTokens(companyName: string): string[] {
-  return normalize(companyName)
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter((token) => token.length >= 4 && !COMPANY_STOPWORDS.has(token));
-}
-
-function domainMatchesCompany(companyName: string, domain: string): boolean {
-  const base = domainBase(domain).replace(/[^a-z0-9]/g, "");
-  if (!base) return false;
-
-  return companyTokens(companyName).some(
-    (token) => base.includes(token) || token.includes(base),
-  );
-}
-
-interface ScamSignal {
-  label: string;
-  severity: RiskLevel;
-}
 
 export function mockCheckJobScam(
   companyName: string,
@@ -96,95 +16,7 @@ export function mockCheckJobScam(
   jobTitle: string,
   jobDescription: string,
 ): ScamCheckResult {
-  const text = `${companyName} ${jobTitle} ${jobDescription}`;
-  const signals: ScamSignal[] = [];
-
-  if (
-    /\b(?:bayar|membayar|pembayaran|deposit|transfer|biaya\s+(?:pelatihan|administrasi|pendaftaran|awal)|tiket|akomodasi)\b/i.test(
-      text,
-    )
-  ) {
-    signals.push({
-      label: "permintaan pembayaran di muka",
-      severity: "High",
-    });
-  }
-
-  const highSalary = /\bgaji\s+(?:[5-9]\d|\d{3,})\s*juta\b/i.test(text);
-  const easyRequirements =
-    /\b(?:tanpa pengalaman|syarat mudah|hanya modal hp|modal hp|hanya mengetik|mengetik|tanpa wawancara|tanpa interview)\b/i.test(
-      text,
-    );
-
-  if (highSalary && easyRequirements) {
-    signals.push({
-      label: "gaji tidak wajar untuk syarat yang sangat mudah",
-      severity: "High",
-    });
-  } else if (highSalary) {
-    signals.push({ label: "gaji di atas kewajaran", severity: "Medium" });
-  } else if (easyRequirements) {
-    signals.push({
-      label: "syarat lowongan terlalu mudah",
-      severity: "Medium",
-    });
-  }
-
-  if (
-    /\b(?:whatsapp|wa\.me|telegram|t\.me)\b/i.test(text) ||
-    /\b(?:hubungi|chat|kirim|kontak)\b[^.\n]{0,40}\b(?:wa|whatsapp|telegram)\b/i.test(
-      text,
-    )
-  ) {
-    signals.push({
-      label: "mengarahkan komunikasi ke WhatsApp/Telegram pribadi",
-      severity: "High",
-    });
-  }
-
-  const domain = normalizeEmailDomain(hrdEmail);
-  if (!domain) {
-    signals.push({ label: "email HRD tidak valid", severity: "Medium" });
-  } else if (
-    DISPOSABLE_DOMAINS.some((candidate) => domain.endsWith(candidate))
-  ) {
-    signals.push({ label: "domain email sementara", severity: "High" });
-  } else if (FREE_MAIL_DOMAINS.has(domain)) {
-    const bigCompany = BIG_COMPANY_PATTERN.test(companyName);
-    signals.push({
-      label: bigCompany
-        ? "perusahaan besar memakai domain email gratis"
-        : "email HRD memakai domain gratis",
-      severity: bigCompany ? "High" : "Medium",
-    });
-  } else if (
-    companyName.trim() &&
-    !domainMatchesCompany(companyName, domain)
-  ) {
-    signals.push({
-      label: "domain email tidak cocok dengan nama perusahaan",
-      severity: "Medium",
-    });
-  }
-
-  const riskLevel: RiskLevel = signals.some(
-    (signal) => signal.severity === "High",
-  )
-    ? "High"
-    : signals.some((signal) => signal.severity === "Medium")
-      ? "Medium"
-      : "Low";
-
-  return {
-    is_safe: riskLevel === "Low",
-    risk_level: riskLevel,
-    reason:
-      signals.length > 0
-        ? `Terdeteksi indikasi penipuan: ${signals
-            .map((signal) => signal.label)
-            .join("; ")}.`
-        : "Tidak ada indikasi penipuan yang jelas.",
-  };
+  return assessJobScam(companyName, hrdEmail, jobTitle, jobDescription);
 }
 
 export function mockValidateAndRedactCV(
@@ -336,9 +168,7 @@ function tokenize(text: string): string[] {
 }
 
 function categoryFor(score: number): MatchCategory {
-  if (score >= 80) return "Highly Recommended";
-  if (score >= 55) return "Potential";
-  return "Not Recommended";
+  return matchCategoryForScore(score);
 }
 
 function feedbackFor(category: MatchCategory): string {

@@ -24,8 +24,8 @@ Run `next dev`/`next build` before `tsc --noEmit` on a fresh clone: `app/layout.
 
 ## Layout and branch state (read before editing)
 
-- This repo is mid-refactor between two App Router locations. Current feature branches have a live root `app/` plus a placeholder `src/app/api/screen/route.ts`. Next.js silently ignores `src/app` whenever a root `app/` exists, so an API route added/implemented only under `src/app` will not be served. `origin/main` already moved the app to `src/app/`; do not casually merge or forward-port that refactor.
-- `src/lib/*`, `src/data/*`, `src/types/*`, `src/app/api/*`, `src/components/`, `scripts/`, and `samples/` are committed 0-byte placeholders that form the team's module map (extract → anonymize → score via Gemini; `scoring.mock.ts` for offline runs; `scripts/test-scoring.ts` harness). Fill files in place; don't delete or restructure the placeholder tree.
+- This repo is mid-refactor between two App Router locations. Current feature branches have a live root `app/` plus `src/app/api/screen/route.ts`. Next.js silently ignores `src/app` whenever a root `app/` exists, so the served route is `app/api/screen/route.ts`; the `src/app` file re-exports the same handler for the future `src/app` merge. `origin/main` already moved the app to `src/app/`; do not casually merge or forward-port that refactor.
+- `src/lib/*`, `src/data/*`, `src/types/*`, `src/app/api/*`, `src/components/`, `scripts/`, and `samples/` are the team's module map (extract → anonymize → score via Gemini; `scoring.mock.ts` for offline runs; `scripts/test-scoring.ts` harness). Fill files in place; don't delete or restructure the placeholder tree.
 - Branch ownership is parallel: `feat/ai-scoring` (current), `feat/backend-pipeline`, `feat/frontend-dashboard`, `feat/develop`, `main`. Avoid broad renames or moves of shared files; they cause cross-branch conflicts.
 - Path alias `@/*` maps to repo root (`"./*"`), not `src/`. Use `@/src/lib/...`; `@/lib/...` resolves to a nonexistent root `lib/`.
 
