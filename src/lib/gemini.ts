@@ -114,6 +114,11 @@ function fallbackResult<T>(
   reason: string,
   startedAt: number,
 ): GenerationResult<T> {
+  console.warn("[gemini] Menggunakan fallback", {
+    model,
+    alasan: reason,
+    durasiMs: Date.now() - startedAt,
+  });
   return {
     data: fallback,
     mode: "fallback",
@@ -166,6 +171,11 @@ export async function generateJsonResult<T>({
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     try {
+      console.info("[gemini] Permintaan analisis dimulai", {
+        model,
+        percobaan: attempt,
+        maksimalPercobaan: MAX_ATTEMPTS,
+      });
       const response = await getClient(apiKey).models.generateContent({
         model,
         contents: prompt,
@@ -208,12 +218,21 @@ export async function generateJsonResult<T>({
         );
       }
 
+      const usage = toUsage(response);
+      console.info("[gemini] Analisis berhasil", {
+        model,
+        durasiMs: Date.now() - startedAt,
+        promptTokens: usage?.promptTokens,
+        outputTokens: usage?.outputTokens,
+        totalTokens: usage?.totalTokens,
+      });
+
       return {
         data: parsed.data,
         mode: "gemini",
         model,
         latencyMs: Date.now() - startedAt,
-        usage: toUsage(response),
+        usage,
       };
     } catch (error) {
       if (signal?.aborted) {
@@ -224,14 +243,18 @@ export async function generateJsonResult<T>({
         const backoff =
           BASE_BACKOFF_MS * 2 ** (attempt - 1) + Math.floor(Math.random() * 100);
         console.warn(
-          `[gemini] Request failed on attempt ${attempt}; retrying in ${backoff}ms`,
-          error,
+          "[gemini] Permintaan gagal, mencoba ulang",
+          { model, percobaan: attempt, status: statusOf(error), jedaMs: backoff },
         );
         await delay(backoff);
         continue;
       }
 
-      console.error("[gemini] Request failed", error);
+      console.error("[gemini] Permintaan gagal", {
+        model,
+        percobaan: attempt,
+        status: statusOf(error),
+      });
       return fallbackResult(
         fallback,
         model,
@@ -274,6 +297,11 @@ export async function embedTexts(
 
   for (let start = 0; start < inputs.length; start += EMBEDDING_BATCH_SIZE) {
     const batch = inputs.slice(start, start + EMBEDDING_BATCH_SIZE);
+    const startedAt = Date.now();
+    console.info("[gemini] Permintaan embedding dimulai", {
+      model,
+      jumlahTeks: batch.length,
+    });
     const response = await getClient(apiKey).models.embedContent({
       model,
       contents: batch,
@@ -287,6 +315,11 @@ export async function embedTexts(
     if (!embeddings || embeddings.length !== batch.length) {
       throw new Error("Gemini returned an unexpected embedding count");
     }
+    console.info("[gemini] Embedding berhasil", {
+      model,
+      jumlahTeks: batch.length,
+      durasiMs: Date.now() - startedAt,
+    });
 
     embeddings.forEach((embedding, index) => {
       const values = embedding.values;

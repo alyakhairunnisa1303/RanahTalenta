@@ -122,7 +122,7 @@ function RegisterForm() {
 
   if (step === "confirm") {
     return (
-      <div className="w-full max-w-md text-center">
+      <div className="mx-auto w-full max-w-md text-center">
         <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-brand-50 text-brand-600">
           <Icon name="mail" className="h-6 w-6" />
         </span>
@@ -148,15 +148,7 @@ function RegisterForm() {
   }
 
   return (
-    <div className="w-full max-w-md">
-      <Link
-        href="/"
-        className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-brand-600 transition"
-      >
-        <Icon name="arrowLeft" className="h-4 w-4" />
-        Kembali ke Dashboard Publik
-      </Link>
-
+    <div className="mx-auto w-full max-w-[34rem]">
       <h1 className="text-3xl font-extrabold tracking-tight text-ink-900">Buat akun</h1>
       <p className="mt-2 text-sm text-slate-500">
         Sudah punya akun?{" "}
@@ -165,7 +157,7 @@ function RegisterForm() {
         </Link>
       </p>
 
-      <div className="mt-6">
+      <div className="mt-6 w-full">
         <Segmented
           value={role}
           onChange={(v) => {

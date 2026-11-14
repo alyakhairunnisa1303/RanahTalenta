@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { createAuditMeta, type GenerationMeta } from "./audit";
+import { generateJsonResult } from "./gemini";
 import {
   DocumentExtractionError,
   MAX_DOCUMENT_BYTES,
@@ -378,6 +379,7 @@ async function runCvScreening(
   input: CvScreeningInput,
   requestId: string,
   onProgress?: (step: number) => Promise<void>,
+  requireLiveGemini = false,
 ): Promise<Response> {
   const generations: GenerationMeta[] = [];
   const onGeneration = (meta: GenerationMeta) => generations.push(meta);
@@ -385,7 +387,8 @@ async function runCvScreening(
   await onProgress?.(1);
   const validation = await validateAndRedactCV(input.cvText, {
     onGeneration,
-    deepScan: input.deepScan,
+    deepScan: input.deepScan || requireLiveGemini,
+    forceRealGemini: requireLiveGemini,
   });
   await onProgress?.(2);
 
@@ -426,6 +429,7 @@ async function runCvScreening(
   }
 
   if (input.jobs?.length) {
+    const scoringGenerationStart = generations.length;
     const results: RankedMatch[] = await rankAndScoreJobs(
       validation.redacted_cv,
       input.jobs,
@@ -433,8 +437,16 @@ async function runCvScreening(
         topN: input.topN,
         onGeneration,
         deepScan: input.deepScan,
+        forceRealGemini: requireLiveGemini,
+        ...(requireLiveGemini ? { generate: generateJsonResult } : {}),
       },
     );
+    if (
+      requireLiveGemini &&
+      generations.slice(scoringGenerationStart).some((generation) => generation.mode !== "gemini")
+    ) {
+      throw new Error("Analisis Gemini gagal. Hasil mock tidak disimpan sebagai hasil screening.");
+    }
 
     return jsonResponse({
       status: "ranked",
@@ -455,9 +467,16 @@ async function runCvScreening(
     {
       onGeneration,
       jobTitle: input.jobTitle,
-      deepScan: input.deepScan,
+      deepScan: input.deepScan || requireLiveGemini,
+      forceRealGemini: requireLiveGemini,
+      ...(requireLiveGemini ? { generate: generateJsonResult } : {}),
     },
   );
+  const scoringGeneration = generations.at(-1);
+  if (requireLiveGemini && scoringGeneration?.mode !== "gemini") {
+    const reason = scoringGeneration?.fallbackReason ?? scoringGeneration?.mode ?? "unknown";
+    throw new Error(`Analisis Gemini gagal (${reason}). Hasil mock tidak disimpan sebagai hasil screening.`);
+  }
   await onProgress?.(4);
 
   return jsonResponse({
@@ -674,6 +693,7 @@ async function handleJson(
   request: Request,
   requestId: string,
   onProgress?: (step: number) => Promise<void>,
+  requireLiveGemini = false,
 ): Promise<Response> {
   let body: unknown;
 
@@ -723,6 +743,7 @@ async function handleJson(
       },
       requestId,
       onProgress,
+      requireLiveGemini,
     );
   }
 
@@ -753,6 +774,7 @@ async function handleJson(
 export async function handleScreenRequest(
   request: Request,
   onProgress?: (step: number) => Promise<void>,
+  options: { requireLiveGemini?: boolean } = {},
 ): Promise<Response> {
   const requestId = randomUUID();
 
@@ -788,7 +810,7 @@ export async function handleScreenRequest(
     if (contentType.includes("multipart/form-data")) {
       response = await handleMultipart(request, requestId);
     } else {
-      response = await handleJson(request, requestId, onProgress);
+      response = await handleJson(request, requestId, onProgress, options.requireLiveGemini);
     }
 
     return withRequestId(response, requestId);
@@ -796,6 +818,17 @@ export async function handleScreenRequest(
     if (error instanceof DocumentExtractionError) {
       return withRequestId(
         jsonResponse({ error: error.message, requestId }, error.status),
+        requestId,
+      );
+    }
+
+    if (options.requireLiveGemini && error instanceof Error) {
+      console.error("[screen] Gemini wajib gagal", {
+        requestId,
+        alasan: error.message,
+      });
+      return withRequestId(
+        jsonResponse({ error: error.message, requestId }, 503),
         requestId,
       );
     }

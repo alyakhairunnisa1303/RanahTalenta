@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import Icon from "./Icons";
 
 export function Logo({ light = false }: { light?: boolean }) {
   return (
@@ -41,8 +42,18 @@ export default function Navbar() {
 
   return (
     <header className="sticky top-0 z-40 border-b-2 border-ink-900 bg-white">
-      <div className="mx-auto flex h-[80px] max-w-6xl items-center justify-between gap-4 px-4">
-        <div className="flex items-center gap-10">
+      <div className={`mx-auto flex h-[80px] items-center justify-between px-4 ${pathname === "/login" || pathname === "/register" ? "max-w-7xl gap-2 sm:gap-3" : "max-w-6xl gap-4"}`}>
+        <div className={`flex min-w-0 items-center ${pathname === "/login" || pathname === "/register" ? "gap-3 sm:gap-4" : "gap-4 sm:gap-8"}`}>
+          {(pathname === "/login" || pathname === "/register") && (
+            <Link
+              href="/"
+              aria-label="Kembali ke halaman utama"
+              className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-brand-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 sm:text-sm md:-translate-x-[max(0px,calc((100vw-80rem)/2))]"
+            >
+              <Icon name="arrowLeft" className="h-4 w-4" />
+              <span className="hidden sm:inline">{pathname === "/register" ? "Kembali" : "Kembali"}</span>
+            </Link>
+          )}
           <Link href="/" aria-label="Beranda RanahTalenta">
             <Logo />
           </Link>
@@ -58,13 +69,13 @@ export default function Navbar() {
         <div className="flex items-center gap-3">
           <Link
             href="/login"
-            className="inline-flex items-center justify-center rounded-xl border-2 border-ink-900 bg-white px-6 py-2.5 text-lg font-black text-ink-950 shadow-[2px_2px_0_0_var(--color-ink-900)] transition hover:bg-slate-100"
+              className={`inline-flex items-center justify-center rounded-xl border-2 border-ink-900 bg-white py-2 text-xs font-black text-ink-950 shadow-[2px_2px_0_0_var(--color-ink-900)] transition hover:bg-slate-100 sm:py-2.5 sm:text-base ${pathname === "/login" || pathname === "/register" ? "px-2 sm:px-4 lg:px-6 lg:text-lg" : "px-6 text-lg"}`}
           >
             Masuk
           </Link>
           <Link
             href="/register"
-            className="btn-primary btn-hard px-6 py-2.5 text-lg font-black shadow-[2px_2px_0_0_var(--color-ink-900)]"
+            className={`btn-primary btn-hard py-2 text-xs font-black shadow-[2px_2px_0_0_var(--color-ink-900)] sm:py-2.5 sm:text-base ${pathname === "/login" || pathname === "/register" ? "px-2 sm:px-4 lg:px-6 lg:text-lg" : "px-6 text-lg"}`}
           >
             Daftar
           </Link>

@@ -147,6 +147,7 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
         ? { ...row, application: { ...row.application, screening_status: "processing", screening_error: null } }
         : row));
 
+      let progressTimer: number | undefined;
       try {
         const pollProgress = async () => {
           try {
@@ -163,12 +164,35 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
             // Progres tetap diperbarui lagi pada polling berikutnya.
           }
         };
-        const progressTimer = window.setInterval(() => void pollProgress(), 500);
+        progressTimer = window.setInterval(() => void pollProgress(), 500);
         const response = await fetch(`/api/applications/${applicant.application.id}/screen`, { method: "POST" });
         window.clearInterval(progressTimer);
         const result = await response.json().catch(() => null) as { error?: string } | null;
-        if (!response.ok) throw new Error(result?.error ?? "Screening AI gagal dijalankan.");
+        if (response.status === 409) {
+          let screeningFinished = false;
+          for (let attempt = 0; attempt < 120; attempt += 1) {
+            await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+            const refreshed = await fetch(`/api/jobs/${jobId}/applications`, { cache: "no-store" });
+            if (!refreshed.ok) continue;
+            const latest = await refreshed.json() as { applicants?: ApplicantRow[] };
+            if (latest.applicants) setRows(latest.applicants);
+            const latestApplicant = latest.applicants?.find((row) => row.application.id === applicant.application.id);
+            if (latestApplicant?.application.screening_status === "completed") {
+              screeningFinished = true;
+              break;
+            }
+            if (latestApplicant?.application.screening_status === "failed") {
+              throw new Error(latestApplicant.application.screening_error ?? "Screening AI gagal dijalankan.");
+            }
+          }
+          if (!screeningFinished) {
+            setScoringError("Screening kandidat ini masih berjalan di server. Progresnya akan diperbarui otomatis.");
+            continue;
+          }
+        }
+        if (!response.ok && response.status !== 409) throw new Error(result?.error ?? "Screening AI gagal dijalankan.");
       } catch (error) {
+        if (progressTimer !== undefined) window.clearInterval(progressTimer);
         failures += 1;
         const message = error instanceof Error ? error.message : "Screening AI gagal dijalankan.";
         setRows((current) => current.map((row) => row.application.id === applicant.application.id

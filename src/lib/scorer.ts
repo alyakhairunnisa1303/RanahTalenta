@@ -52,6 +52,7 @@ export interface ServiceOptions {
   jobTitle?: string;
   requirements?: JobRequirements;
   deepScan?: boolean;
+  forceRealGemini?: boolean;
   signal?: AbortSignal;
   generate?: GenerateJson;
 }
@@ -141,7 +142,7 @@ export class HireMatchAIService {
       jobDescription,
     );
 
-    if (isMockMode()) {
+    if (isMockMode() && !options.forceRealGemini) {
       options.onGeneration?.({
         mode: "mock",
         model: "deterministic-mock",
@@ -195,7 +196,7 @@ export class HireMatchAIService {
       };
     }
 
-    if (isMockMode()) {
+    if (isMockMode() && !options.forceRealGemini) {
       options.onGeneration?.({
         mode: "mock",
         model: "deterministic-mock",

@@ -57,9 +57,9 @@ export default function JobBoard({
   return (
     <section
       id="lowongan"
-      className={`mx-auto max-w-6xl scroll-mt-24 px-4 ${isCandidate ? "py-8" : "py-16"}`}
+      className={`mx-auto scroll-mt-24 ${isCandidate ? "max-w-7xl px-4 py-9 sm:px-6 lg:py-12" : "max-w-6xl px-4 py-16"}`}
     >
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+      <div className={`flex flex-col md:flex-row md:items-end md:justify-between ${isCandidate ? "gap-4 border-b border-slate-200 pb-6" : "gap-3"}`}>
         <div>
           <span className="eyebrow">
             {isCandidate ? "Cari Lowongan" : "Dashboard Publik"}
@@ -67,19 +67,21 @@ export default function JobBoard({
           <h2 className="mt-1 text-3xl font-extrabold tracking-tight text-ink-900 md:text-4xl">
             {isCandidate ? "Lowongan Tersedia" : "Daftar Lowongan Pekerjaan"}
           </h2>
-          <p className="mt-2 max-w-xl text-sm text-slate-600">
+          <p className={`mt-2 text-sm text-slate-600 ${isCandidate ? "max-w-2xl leading-relaxed" : "max-w-xl"}`}>
             {isCandidate
               ? "Telusuri lowongan yang sedang dibuka, cek kecocokan CV dengan AI, lalu lamar langsung dari dashboard pelamar."
               : "Telusuri lowongan kerja aktif tanpa perlu login. Tekan salah satu pekerjaan untuk masuk ke fitur Pelamar dan mulai melamar dengan bantuan AI."}
           </p>
         </div>
-        <p className="inline-flex w-fit items-center gap-2 rounded-full border-2 border-ink-900 bg-accent-400 px-4 py-1.5 text-sm font-bold text-ink-950">
+        <p className={`inline-flex w-fit shrink-0 items-center gap-2 rounded-full border-2 border-ink-900 bg-accent-400 px-4 text-sm font-bold text-ink-950 ${isCandidate ? "py-2" : "py-1.5"}`}>
           <Icon name="briefcase" className="h-4 w-4" />
           {filtered.length} lowongan tersedia
         </p>
       </div>
 
-      <div className="card-bold mt-8 flex flex-col gap-3 p-3 sm:flex-row">
+      <div className={isCandidate
+        ? "card-bold mt-6 grid gap-3 rounded-2xl p-3 sm:grid-cols-[minmax(0,1fr)_16rem] sm:p-4"
+        : "card-bold mt-8 flex flex-col gap-3 p-3 sm:flex-row"}>
         <div className="relative flex-1">
           <Icon
             name="search"
@@ -92,7 +94,7 @@ export default function JobBoard({
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <div className="relative sm:w-56">
+        <div className={`relative ${isCandidate ? "" : "sm:w-56"}`}>
           <Icon
             name="pin"
             className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
@@ -110,7 +112,7 @@ export default function JobBoard({
       </div>
 
       {filtered.length === 0 ? (
-        <div className="card-bold mt-8 px-6 py-16 text-center">
+        <div className={`card-bold px-6 py-16 text-center ${isCandidate ? "mt-7 rounded-2xl" : "mt-8"}`}>
           <Icon name="search" className="mx-auto h-9 w-9 text-brand-200" />
           <p className="mt-3 text-lg font-bold text-ink-900">
             Tidak ada lowongan yang cocok
@@ -120,7 +122,7 @@ export default function JobBoard({
           </p>
         </div>
       ) : (
-        <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <div className={`grid md:grid-cols-2 lg:grid-cols-3 ${isCandidate ? "mt-7 gap-5 lg:gap-6" : "mt-8 gap-6"}`}>
           {filtered.map((job) => (
             <JobCard key={job.id} job={job} candidateMode={isCandidate} />
           ))}

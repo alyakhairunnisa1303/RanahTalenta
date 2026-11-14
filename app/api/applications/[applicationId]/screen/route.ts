@@ -59,7 +59,10 @@ export async function POST(
       `UPDATE applications a SET screening_status = 'processing', screening_step = 0, screening_started_at = NOW(), screening_error = NULL
        FROM jobs j
        WHERE a.id = $1 AND a.job_id = j.id AND j.hrd_id = $2
-         AND a.screening_status IN ('not_started', 'failed')
+         AND (
+           a.screening_status IN ('not_started', 'failed')
+           OR (a.screening_status = 'processing' AND (a.screening_started_at IS NULL OR a.screening_started_at < NOW() - INTERVAL '10 minutes'))
+         )
        RETURNING a.id`,
       [applicationId, user.id],
     );
@@ -74,7 +77,10 @@ export async function POST(
       if (current.rows[0].screening_status === "completed") {
         return NextResponse.json({ screening_status: "completed", already_screened: true });
       }
-      return NextResponse.json({ error: "Screening AI untuk pelamar ini sedang berjalan." }, { status: 409 });
+      return NextResponse.json({
+        error: "Screening AI untuk pelamar ini sedang berjalan.",
+        screening_status: current.rows[0].screening_status,
+      }, { status: 409 });
     }
 
     try {
@@ -99,7 +105,7 @@ export async function POST(
         );
         // Beri jeda singkat agar perubahan tahapan terbaca jelas di panel HRD.
         await new Promise((resolve) => setTimeout(resolve, 220));
-      });
+      }, { requireLiveGemini: true });
       const screened = await response.json() as ScreeningResponse;
       if (!response.ok || screened.status !== "scored" || !screened.match) {
         throw new Error(screened.validation?.reject_reason ?? screened.error ?? "AI belum berhasil menilai CV ini.");
