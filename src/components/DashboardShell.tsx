@@ -27,14 +27,10 @@ import { useAllApplications } from "../lib/use-all-applications";
 
 type NavItem = { href: string; label: string; icon: LucideIcon; badge?: number };
 type NavGroup = { label: string; items: NavItem[] };
-type NotificationItem = { id: string; title: string; message: string; time: string; href: string };
+type NotificationItem = { id: string; title: string; message: string; time: string; href: string; createdAt?: number };
 
 const NOTIFICATIONS: Record<UserRole, NotificationItem[]> = {
-  candidate: [
-    { id: "candidate-interview", title: "Panggilan Wawancara", message: "Selamat! Nusantara Digital mengundang Anda untuk wawancara posisi UI/UX Designer.", time: "10 menit lalu", href: "/candidate/interviews" },
-    { id: "candidate-cv", title: "Analisis AI Selesai", message: "CV Anda telah selesai diproses oleh AI Engine. Cek rekomendasi perbaikan profil Anda.", time: "2 jam lalu", href: "/candidate/cv-profile" },
-    { id: "candidate-application", title: "Lamaran Terkirim", message: "Lamaran Anda berhasil dikirim. Pantau status terbaru pada halaman Lamaran Saya.", time: "1 hari lalu", href: "/candidate/applications" },
-  ],
+  candidate: [],
   hrd: [
     { id: "hrd-applicant", title: "Pelamar Baru Masuk", message: "Ada kandidat baru yang melamar. Tinjau hasil screening AI di Talent Pool.", time: "5 menit lalu", href: "/hrd/candidates" },
     { id: "hrd-interview", title: "Jadwal Interview", message: "Periksa jadwal interview kandidat shortlist Anda yang akan datang.", time: "1 jam lalu", href: "/hrd/interviews" },
@@ -109,9 +105,14 @@ function DashboardShellInner({
   const [open, setOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>(() =>
-    role === "candidate" ? ["candidate-application"] : ["hrd-screening"],
+    role === "hrd" ? ["hrd-screening"] : [],
   );
-  const [hasScheduledInterview, setHasScheduledInterview] = useState(false);
+  const [candidateInterviews, setCandidateInterviews] = useState<{
+    id: number;
+    status: string;
+    scheduled_at: string;
+    job_title: string;
+  }[]>([]);
   const notificationAreaRef = useRef<HTMLDivElement>(null);
   const notificationStorageKey = `ranah-talenta:notifications:${role}:${user?.id ?? "guest"}`;
 
@@ -168,13 +169,13 @@ function DashboardShellInner({
     fetch("/api/candidate/interviews", { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) return [];
-        const data = await response.json() as { interviews?: { status: string }[] };
+        const data = await response.json() as {
+          interviews?: { id: number; status: string; scheduled_at: string; job_title: string }[];
+        };
         return data.interviews ?? [];
       })
-      .then((items) => {
-        if (!cancelled) setHasScheduledInterview(items.some((item) => item.status === "scheduled"));
-      })
-      .catch(() => { if (!cancelled) setHasScheduledInterview(false); });
+      .then((items) => { if (!cancelled) setCandidateInterviews(items); })
+      .catch(() => { if (!cancelled) setCandidateInterviews([]); });
     return () => { cancelled = true; };
   }, [role, userId]);
 
@@ -183,14 +184,37 @@ function DashboardShellInner({
   }
 
   const displayName = role === "hrd" ? user?.company_name : user?.name;
-  const notifications = NOTIFICATIONS[role];
+  const candidateApplications = allApplications.filter((application) => application.candidate_id === user.id);
+  const candidateNotifications: NotificationItem[] = [
+    ...candidateApplications.map((application) => {
+      const job = allJobs.find((item) => item.id === application.job_id);
+      return {
+        id: `candidate-application-${application.id}`,
+        title: "Lamaran Terkirim",
+        message: `Lamaran Anda untuk posisi ${job?.title ?? "lowongan"} berhasil dikirim. Pantau perkembangannya di Lamaran Saya.`,
+        time: new Date(application.applied_at).toLocaleDateString("id-ID", { day: "numeric", month: "short" }),
+        href: "/candidate/applications",
+        createdAt: Date.parse(application.applied_at) || 0,
+      };
+    }),
+    ...candidateInterviews.filter((interview) => interview.status === "scheduled").map((interview) => ({
+      id: `candidate-interview-${interview.id}`,
+      title: "Jadwal Wawancara",
+      message: `Wawancara untuk posisi ${interview.job_title} dijadwalkan pada ${new Date(interview.scheduled_at).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}.`,
+      time: new Date(interview.scheduled_at).toLocaleDateString("id-ID", { day: "numeric", month: "short" }),
+      href: "/candidate/interviews",
+      createdAt: Date.parse(interview.scheduled_at) || 0,
+    })),
+  ].sort((first, second) => (second.createdAt ?? 0) - (first.createdAt ?? 0));
+  const notifications = role === "candidate" ? candidateNotifications : NOTIFICATIONS.hrd;
   const unreadCount = notifications.filter((item) => !readNotificationIds.includes(item.id)).length;
   const activeJobsCount = allJobs.filter(
     (job) => job.status === "open" && (role !== "hrd" || job.hrd_id === user?.id),
   ).length;
   const navGroups = role === "hrd" ? HRD_NAV : CANDIDATE_NAV;
-  const candidateApplications = allApplications.filter((application) => application.candidate_id === user.id);
-  const unreadCandidateInterviews = hasScheduledInterview && !readNotificationIds.includes("candidate-interview") ? 1 : 0;
+  const unreadCandidateInterviews = candidateNotifications.filter(
+    (item) => item.href === "/candidate/interviews" && !readNotificationIds.includes(item.id),
+  ).length;
 
   const isActive = (href: string) => {
     if (href === "/candidate/applications") return pathname === href;
@@ -374,7 +398,11 @@ function DashboardShellInner({
                 </div>
 
                 <ul className="max-h-[min(420px,65vh)] overflow-y-auto py-1">
-                  {notifications.map((item) => {
+                  {notifications.length === 0 ? (
+                    <li className="px-4 py-8 text-center text-xs text-slate-500">
+                      Belum ada notifikasi untuk aktivitas akun ini.
+                    </li>
+                  ) : notifications.map((item) => {
                     const unread = !readNotificationIds.includes(item.id);
                     return (
                       <li key={item.id}>

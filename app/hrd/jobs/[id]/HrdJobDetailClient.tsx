@@ -279,7 +279,7 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
     );
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-8">
+    <div className="mx-auto w-full min-w-0 max-w-[1400px] space-y-6 px-4 py-8 sm:px-6 xl:px-8">
       {/* Toast Notifikasi Aksi */}
       {toast && (
         <div className="fixed top-20 right-6 z-50 flex max-w-md animate-fade-in items-center gap-3 rounded-xl border-2 border-emerald-500 bg-white p-4 shadow-xl">
@@ -317,17 +317,17 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
       </Hero>
 
       {/* Grid 2 Kolom: Kolom Utama (Leaderboard) & Kolom Kanan (Sidebar Requirement & Recommended) */}
-      <div className="grid gap-8 lg:grid-cols-[1fr_390px]">
+      <div className="grid w-full min-w-0 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         {/* KOLOM KIRI: Leaderboard & Kontrol Blind Screening */}
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
           {/* Banner Sistem Blind Screening Otomatis (Tanpa Sakelar Manual) */}
-          <div className="card flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 border-l-4 border-l-brand-600">
-            <div className="flex items-center gap-3.5">
+          <div className="card flex w-full min-w-0 flex-col justify-between gap-4 border-l-4 border-l-brand-600 p-5 sm:flex-row sm:items-center">
+            <div className="flex min-w-0 flex-1 items-center gap-3.5">
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
                 <Icon name="shield" className="h-6 w-6" />
               </span>
-              <div className="leading-tight">
-                <div className="flex items-center gap-2">
+              <div className="min-w-0 leading-tight">
+                <div className="flex flex-wrap items-center gap-2">
                   <p className="text-sm font-bold text-ink-900">Screening AI dimulai oleh HRD</p>
                   <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-bold text-amber-700 ring-1 ring-inset ring-amber-200">
                     Menunggu tindakan HRD
@@ -347,7 +347,7 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
             </div>
           </div>
 
-          <div className="card flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="card flex w-full min-w-0 flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0 flex-1">
               <p className="font-bold text-ink-900">Proses screening kandidat</p>
               <p className="mt-1 text-xs text-slate-500">
@@ -409,7 +409,7 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="flex items-center justify-between px-1">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-1">
                 <h2 className="text-sm font-extrabold uppercase tracking-wider text-slate-500">
                   Daftar Pelamar ({sorted.length})
                 </h2>
@@ -426,7 +426,7 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
                   <div
                     key={r.application.id}
                     onClick={() => setSelectedId(r.application.id)}
-                    className={`card flex w-full animate-fade-up flex-col sm:flex-row sm:items-center justify-between gap-4 border-l-4 p-4 transition hover:-translate-y-0.5 hover:shadow-md cursor-pointer ${sm.accent}`}
+                    className={`card flex w-full min-w-0 animate-fade-up flex-col justify-between gap-4 border-l-4 p-4 transition hover:-translate-y-0.5 hover:shadow-md cursor-pointer sm:flex-row sm:items-center ${sm.accent}`}
                     style={{ animationDelay: `${index * 60}ms` }}
                   >
                     <div className="flex items-center gap-3.5 min-w-0 flex-1">
@@ -436,7 +436,7 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
                       <Avatar r={r} />
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-bold text-ink-900">{displayName(r)}</p>
+                          <p className="min-w-0 break-words font-bold text-ink-900">{displayName(r)}</p>
                           {shortlisted ? (
                             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 ring-1 ring-emerald-300">
                               <Icon name="check" className="h-3 w-3 text-emerald-700" strokeWidth={3} />
@@ -449,7 +449,7 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
                             </span>
                           )}
                         </div>
-                        <p className="truncate text-xs text-slate-500 mt-1">
+                        <p className="mt-1 line-clamp-2 break-words text-xs text-slate-500">
                           {screened
                             ? r.match.hr_strengths.join(" · ") || "Screening selesai; belum ada kekuatan yang dicatat."
                             : state === "processing"
@@ -495,7 +495,7 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
                         <button
                           onClick={() => inviteCandidate(r.application.id)}
                           disabled={!screened}
-                          className="btn-primary text-xs font-bold px-3 py-1.5 shadow-sm transition hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="btn-primary shrink-0 text-xs font-bold px-3 py-1.5 shadow-sm transition hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50"
                           title="Undang wawancara untuk membuka detail identitas pelamar"
                         >
                           Undang Wawancara
@@ -510,10 +510,10 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
         </div>
 
         {/* KOLOM KANAN: SIDEBAR REQUIREMENT & DETAIL KANDIDAT RECOMMENDED */}
-        <aside className="space-y-6">
+        <aside className="min-w-0 space-y-6">
           {/* CARD 1: Requirement Lowongan */}
-          <div className="card p-5">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="card w-full min-w-0 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
                   <Icon name="check" className="h-4 w-4" strokeWidth={2.5} />
@@ -538,15 +538,15 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
               ))}
             </ul>
 
-            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-              <span>Lokasi: <b>{job.location}</b></span>
-              <span>Gaji: <b>{job.salary_range ?? "—"}</b></span>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
+              <span className="min-w-0 break-words">Lokasi: <b>{job.location}</b></span>
+              <span className="min-w-0 break-words">Gaji: <b>{job.salary_range ?? "—"}</b></span>
             </div>
           </div>
 
           {/* CARD 2: Detail Kandidat yang Direkomendasikan (Highly Recommended) */}
-          <div className="card-bold p-5 border-l-4 border-l-emerald-500">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="card-bold w-full min-w-0 border-l-4 border-l-emerald-500 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
                   <Icon name="zap" className="h-4 w-4" />
@@ -559,7 +559,7 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
             </div>
 
             <p className="mt-2.5 text-xs text-slate-500 leading-relaxed">
-              Kandidat dengan skor $\ge 80\%$ yang paling memenuhi requirement posisi:
+              Kandidat dengan skor ≥ 80% yang paling memenuhi requirement posisi:
             </p>
 
             {recommendedCandidates.length === 0 ? (
@@ -573,7 +573,7 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
                   return (
                     <div
                       key={r.application.id}
-                      className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:border-emerald-400"
+                      className="min-w-0 rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:border-emerald-400"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2.5 min-w-0">
@@ -655,10 +655,10 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
           onClick={() => setSelectedId(null)}
         >
           <div
-            className="flex h-full w-full max-w-xl animate-slide-in flex-col bg-white shadow-2xl"
+            className="flex h-dvh w-full max-w-lg animate-slide-in flex-col bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="relative overflow-hidden bg-ink-950 p-6 text-white">
+            <div className="relative overflow-hidden bg-ink-950 p-5 text-white sm:p-6">
               <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 animate-float rounded-full bg-brand-600/40 blur-3xl" />
               <div className="relative flex items-start justify-between gap-3">
                 <div className="flex items-center gap-4">
@@ -697,7 +697,7 @@ export default function HrdJobDetailClient({ jobId }: { jobId: number }) {
               </div>
             </div>
 
-            <div className="flex-1 space-y-6 overflow-y-auto p-6">
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 sm:space-y-6 sm:p-5">
               {/* Notifikasi Status Blind Screening */}
               {isShortlisted(selected) ? (
                 <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-emerald-900">
