@@ -13,8 +13,8 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: "Silakan masuk terlebih dahulu." }, { status: 401 });
   try {
     const result = user.role === "candidate"
-      ? await query<Application>("SELECT a.id, a.job_match_id, a.candidate_id, a.job_id, a.status, a.screening_status, a.screening_error, a.applied_at::text AS applied_at, jm.match_score FROM applications a JOIN job_matches jm ON jm.id = a.job_match_id WHERE a.candidate_id = $1 ORDER BY a.applied_at DESC", [user.id])
-      : await query<Application>("SELECT a.id, a.job_match_id, a.candidate_id, a.job_id, a.status, a.screening_status, a.screening_error, a.applied_at::text AS applied_at, jm.match_score FROM applications a JOIN jobs j ON j.id = a.job_id JOIN job_matches jm ON jm.id = a.job_match_id WHERE j.hrd_id = $1 ORDER BY a.applied_at DESC", [user.id]);
+      ? await query<Application>("SELECT a.id, a.job_match_id, a.candidate_id, a.job_id, a.status, a.screening_status, a.screening_completed_at::text AS screening_completed_at, a.screening_error, a.applied_at::text AS applied_at, jm.match_score FROM applications a JOIN job_matches jm ON jm.id = a.job_match_id WHERE a.candidate_id = $1 ORDER BY a.applied_at DESC", [user.id])
+      : await query<Application>("SELECT a.id, a.job_match_id, a.candidate_id, a.job_id, a.status, a.screening_status, a.screening_completed_at::text AS screening_completed_at, a.screening_error, a.applied_at::text AS applied_at, jm.match_score FROM applications a JOIN jobs j ON j.id = a.job_id JOIN job_matches jm ON jm.id = a.job_match_id WHERE j.hrd_id = $1 ORDER BY a.applied_at DESC", [user.id]);
     return NextResponse.json({ applications: result.rows }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return NextResponse.json({ error: "Lamaran gagal dimuat." }, { status: 503 });

@@ -29,15 +29,6 @@ type NavItem = { href: string; label: string; icon: LucideIcon; badge?: number }
 type NavGroup = { label: string; items: NavItem[] };
 type NotificationItem = { id: string; title: string; message: string; time: string; href: string; createdAt?: number };
 
-const NOTIFICATIONS: Record<UserRole, NotificationItem[]> = {
-  candidate: [],
-  hrd: [
-    { id: "hrd-applicant", title: "Pelamar Baru Masuk", message: "Ada kandidat baru yang melamar. Tinjau hasil screening AI di Talent Pool.", time: "5 menit lalu", href: "/hrd/candidates" },
-    { id: "hrd-interview", title: "Jadwal Interview", message: "Periksa jadwal interview kandidat shortlist Anda yang akan datang.", time: "1 jam lalu", href: "/hrd/interviews" },
-    { id: "hrd-screening", title: "Screening AI Selesai", message: "Hasil pemeringkatan kandidat untuk lowongan Anda siap ditinjau.", time: "3 jam lalu", href: "/hrd/candidates" },
-  ],
-};
-
 const CANDIDATE_NAV: NavGroup[] = [
   { label: "Karir & Lamaran", items: [
     { href: "/candidate/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -104,14 +95,19 @@ function DashboardShellInner({
   const allApplications = useAllApplications();
   const [open, setOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [readNotificationIds, setReadNotificationIds] = useState<string[]>(() =>
-    role === "hrd" ? ["hrd-screening"] : [],
-  );
+  const [readNotificationIds, setReadNotificationIds] = useState<string[]>([]);
   const [candidateInterviews, setCandidateInterviews] = useState<{
     id: number;
     status: string;
     scheduled_at: string;
     job_title: string;
+  }[]>([]);
+  const [hrdInterviews, setHrdInterviews] = useState<{
+    id: number;
+    status: string;
+    scheduled_at: string;
+    job_title: string;
+    candidate_name: string;
   }[]>([]);
   const notificationAreaRef = useRef<HTMLDivElement>(null);
   const notificationStorageKey = `ranah-talenta:notifications:${role}:${user?.id ?? "guest"}`;
@@ -126,7 +122,7 @@ function DashboardShellInner({
         }
       }
     } catch {
-      // Notifikasi contoh tetap berfungsi jika penyimpanan browser tidak tersedia.
+      // Notifikasi tetap dapat dibaca selama sesi jika penyimpanan browser tidak tersedia.
     }
   }, [notificationStorageKey]);
 
@@ -179,6 +175,22 @@ function DashboardShellInner({
     return () => { cancelled = true; };
   }, [role, userId]);
 
+  useEffect(() => {
+    if (role !== "hrd" || !userId) return;
+    let cancelled = false;
+    fetch("/api/hrd/interviews", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return [];
+        const data = await response.json() as {
+          interviews?: { id: number; status: string; scheduled_at: string; job_title: string; candidate_name: string }[];
+        };
+        return data.interviews ?? [];
+      })
+      .then((items) => { if (!cancelled) setHrdInterviews(items); })
+      .catch(() => { if (!cancelled) setHrdInterviews([]); });
+    return () => { cancelled = true; };
+  }, [role, userId]);
+
   if (loading || !user || user.role !== role) {
     return <div className="min-h-screen bg-canvas p-8 text-center text-slate-500">Memeriksa sesi akun...</div>;
   }
@@ -198,7 +210,7 @@ function DashboardShellInner({
       };
     }),
     ...candidateInterviews.filter((interview) => interview.status === "scheduled").map((interview) => ({
-      id: `candidate-interview-${interview.id}`,
+      id: `candidate-interview-${interview.id}-${interview.scheduled_at}`,
       title: "Jadwal Wawancara",
       message: `Wawancara untuk posisi ${interview.job_title} dijadwalkan pada ${new Date(interview.scheduled_at).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}.`,
       time: new Date(interview.scheduled_at).toLocaleDateString("id-ID", { day: "numeric", month: "short" }),
@@ -206,7 +218,40 @@ function DashboardShellInner({
       createdAt: Date.parse(interview.scheduled_at) || 0,
     })),
   ].sort((first, second) => (second.createdAt ?? 0) - (first.createdAt ?? 0));
-  const notifications = role === "candidate" ? candidateNotifications : NOTIFICATIONS.hrd;
+  const hrdNotifications: NotificationItem[] = [
+    ...allApplications.filter((application) => application.screening_status !== "processing").map((application) => {
+      const job = allJobs.find((item) => item.id === application.job_id);
+      return {
+        id: `hrd-applicant-${application.id}`,
+        title: "Pelamar Baru Masuk",
+        message: `Lamaran baru masuk untuk lowongan ${job?.title ?? "yang Anda kelola"}. Buka daftar kandidat untuk meninjau pelamar.`,
+        time: new Date(application.applied_at).toLocaleDateString("id-ID", { day: "numeric", month: "short" }),
+        href: `/hrd/jobs/${application.job_id}`,
+        createdAt: Date.parse(application.applied_at) || 0,
+      };
+    }),
+    ...allApplications.filter((application) => application.screening_status === "completed" && application.screening_completed_at).map((application) => {
+      const job = allJobs.find((item) => item.id === application.job_id);
+      const completedAt = application.screening_completed_at!;
+      return {
+        id: `hrd-screening-${application.id}-${completedAt}`,
+        title: "Screening AI Selesai",
+        message: `Hasil screening untuk lowongan ${job?.title ?? "yang Anda kelola"} sudah tersedia. Tinjau analisis kandidat.`,
+        time: new Date(completedAt).toLocaleDateString("id-ID", { day: "numeric", month: "short" }),
+        href: `/hrd/jobs/${application.job_id}`,
+        createdAt: Date.parse(completedAt) || 0,
+      };
+    }),
+    ...hrdInterviews.filter((interview) => interview.status === "scheduled").map((interview) => ({
+      id: `hrd-interview-${interview.id}-${interview.scheduled_at}`,
+      title: "Jadwal Interview",
+      message: `Wawancara ${interview.candidate_name} untuk ${interview.job_title} dijadwalkan ${new Date(interview.scheduled_at).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}.`,
+      time: new Date(interview.scheduled_at).toLocaleDateString("id-ID", { day: "numeric", month: "short" }),
+      href: "/hrd/interviews",
+      createdAt: Date.parse(interview.scheduled_at) || 0,
+    })),
+  ].sort((first, second) => (second.createdAt ?? 0) - (first.createdAt ?? 0));
+  const notifications = role === "candidate" ? candidateNotifications : hrdNotifications;
   const unreadCount = notifications.filter((item) => !readNotificationIds.includes(item.id)).length;
   const activeJobsCount = allJobs.filter(
     (job) => job.status === "open" && (role !== "hrd" || job.hrd_id === user?.id),

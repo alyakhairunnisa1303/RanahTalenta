@@ -68,6 +68,7 @@ export interface Application {
   status: ApplicationStatus;
   screening_status?: ScreeningStatus;
   screening_step?: number;
+    screening_completed_at?: string | null;
   screening_error?: string | null;
   applied_at: string;
   match_score?: number;
