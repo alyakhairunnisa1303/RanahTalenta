@@ -19,10 +19,14 @@
 
 # production
 /build
+/data/application-documents/
 
 # misc
 .DS_Store
 *.pem
+
+# upload file (CV) - jangan masuk repo
+/storage/
 
 # debug
 npm-debug.log*
