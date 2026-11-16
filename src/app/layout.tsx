@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
+<<<<<<< HEAD
 import "@fontsource-variable/plus-jakarta-sans/wght.css";
 import "./globals.css";
+=======
+import "../src/app/globals.css";
+>>>>>>> origin/main
 import SiteChrome from "../src/components/SiteChrome";
 
 export const metadata: Metadata = {

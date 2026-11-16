@@ -262,10 +262,17 @@ export default function HomePage() {
               <div className="mt-8 flex flex-col sm:flex-row gap-3 pt-4 border-t border-slate-100">
                 <Link
                   href="/login?role=hrd"
+<<<<<<< HEAD
                   className="btn-primary btn-hard flex-1 text-center !bg-ink-900 hover:!bg-ink-950"
                 >
                   Masuk sebagai HRD
                   <Icon name="arrowRight" className="h-4 w-4 inline ml-1.5" />
+=======
+                  className="btn-primary btn-hard flex-1 text-center !bg-ink-900 !text-white hover:!bg-ink-950"
+                >
+                  Masuk sebagai HRD
+                  <Icon name="arrowRight" className="h-4 w-4 inline ml-1.5 !text-white" />
+>>>>>>> origin/main
                 </Link>
                 <Link
                   href="/register?role=hrd"
